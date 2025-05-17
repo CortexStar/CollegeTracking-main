@@ -1,0 +1,19 @@
+High‑impact refactor ideas for your GradesPage.tsx
+#	Suggestion	Why it helps	Quick start
+1	Split into focused components (e.g. SemesterAccordion, CourseTable, OverviewStats)	Smaller files ≈ easier to spot bugs & reuse UI pieces. React can memo‑compare props instead of re‑rendering the entire page.	Create components/semester/SemesterAccordion.tsx, move the whole <Draggable>/<AccordionItem> tree there; prop‑drill only the callbacks it needs.
+2	Move parseCourseData & grade‑point helpers into /utils	Pure, testable logic shouldn’t live in the component file. Unit‑test parsing without rendering React.	export function parseCourseData(raw: string): Course[] { … } in src/utils/parseCourseData.ts. Import it where needed.
+3	Replace many anonymous callbacks with useCallback	Stable function references stop needless re‑renders (especially inside large tables).	ts\nconst handleDragEnd = useCallback((result: DropResult) => { … }, [semesters]);\n
+4	Derive overallStats & overallGPA with useMemo instead of calculating on every render	Avoids O(n) reduce on each keystroke in inline editor.	ts\nconst { totalCredits, totalGradePoints, overallGPA } = useMemo(() => { … }, [semesters]);
+5	Replace imperative setTimeout focusing with autoFocus or React ref callback	Removes timers and is less brittle.	In EditableSpan, pass autoFocus prop to the underlying span once you switch to a controlled <input>/contentEditable abstraction.
+6	Store editing state per‑course in a map, not a single object	Current single‑edit state limits you to one open cell at a time and requires a lot of conditionals.	ts\nconst [editing, setEditing] = useState<Record<string, boolean>>({});\n
+7	Extract toast helpers (toastError, toastSuccess)	Removes duplicate toast({ title: \"Error\", … variant: 'destructive' }) blocks.	ts\nconst toastError = (msg: string) => toast({ title: 'Error', description: msg, variant: 'destructive' });
+8	Validate input with a schema (zod / yup) before parsing	Parsing function currently has many manual regex edge cases; schema tells you exactly why something is invalid.	ts\nimport { z } from 'zod';\nconst lineSchema = z.object({ id: z.string().regex(COURSE_CODE_RE), … });
+9	Switch from react‑beautiful‑dnd (archived) to @hello-pangea/dnd or dnd‑kit	The original lib is no longer maintained; new libs are smaller and have TypeScript support.	npm i @hello-pangea/dnd then update imports (DragDropContext etc. are the same).
+10	Memoize DragDropContext children with React.memo	Large semester lists rerender while dragging causes jank.	Wrap <SemesterAccordion> export with React.memo.
+11	Persist semesters with useLocalStorage hook	Simplifies the useEffect pair.	ts\nconst [semesters, setSemesters] = useLocalStorage<Semester[]>('gradeSemesters', []);\n (use your own small hook).
+12	Prefer CSS modules or Tailwind @apply for repeated utility piles	The header/row flex classes repeat a lot—abstract into class.	.statsCard { @apply flex mb-8 p-6 bg-gray-50 … }
+13	Promote magic numbers to constants (DEFAULT_CREDITS, MAX_GPA)	Improves readability & future changes.	Top of file: const DEFAULT_CREDITS = 3;
+14	Use immer or React’s functional updates to simplify deep state mutations	Current setSemesters spreads/clones often; immer lets you mutate draft directly.	ts\nsetSemesters(draft => { draft[index].courses.push(newCourse); }); (via useImmer).
+15	Add unit tests for GPA calculation edge cases	Prevents regressions when you refactor parsing/math.	Jest + parseCourseData.spec.ts & gpa.spec.ts.
+16	Provide accessibility labels to context‑menu items & buttons	Screen‑reader users need labels on “Add Course”, “Delete”.	aria-label="Delete course" on the <ContextMenuItem>.
+17	Modularize the inline editor (Editable / EditableSpan) into /components/ui/inline-edit	You’ve already reused it; exporting keeps GradesPage thin.	export { Editable, EditableSpan } from that new file.

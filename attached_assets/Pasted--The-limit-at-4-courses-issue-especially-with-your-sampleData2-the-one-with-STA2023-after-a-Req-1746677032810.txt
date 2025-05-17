@@ -1,0 +1,205 @@
+ The "limit at 4 courses" issue, especially with your sampleData2 (the one with STA2023 after a "Requirement" line), strongly points to how the parser handles lines that it considers "end of section" markers.
+
+The likely culprit is this part of the parseTranscriptText function (or parseCourseData if you renamed it in your file):
+
+TypeScript
+
+    // Inside the main loop for processing lines:
+    if (endCourseSectionKeywords.some(keyword => line.toUpperCase().includes(keyword.toUpperCase()))) {
+      // Finalize and push the current course being processed
+      if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+        currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+        courses.push(currentCourse as Course);
+      }
+      currentCourse = {}; // Reset for the next potential block
+      // collectedDataForCourse = []; // Also good to reset this, though it's reset with new course code too
+      break; // <<<< THIS IS THE LIKELY ISSUE
+    }
+When the parser encounters a line like "Requirement", the break; statement causes it to exit the main parsing loop entirely. This means any courses appearing after such a keyword in your input text (like STA2023 in your second example) will not be processed.
+
+The Fix:
+
+Instead of break;, we should continue;. This will finalize the course being worked on (if any) when an endCourseSectionKeyword is found, then skip that keyword line, and continue processing subsequent lines in the input, allowing it to find more courses.
+
+Here's the corrected section of the parseTranscriptText function (assuming this function is what's being called as parseCourseData from your GradesPage.tsx):
+
+TypeScript
+
+// In your src/utils/parseCourseData.ts (or wherever parseTranscriptText is)
+
+// ... (keep the existing Course interface, calculateGradePoints, makeBlankCourse, patterns, etc.) ...
+
+export function parseTranscriptText(rawText: string): Course[] { // Or function parseCourseData
+  const courses: Course[] = [];
+  const lines = rawText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const courseCodePattern = /^([A-Z]{2,4}\d{3,4}L?)\s*\((\d+)\)$/;
+  const gradePattern = /^[A-F][+-]?$/i;
+  const creditsPattern = /^\d+(\.\d{2})?$/;
+
+  let inCourseSection = false; // This logic for finding start of section can remain
+  const courseSectionStartKeywords = ["Course (Class)", "Course Title"];
+  const courseDataHeaderKeywords = ["Grade", "Credit Attempted", "Credit Earned", "Credit for GPA"];
+  // Refined: "Term GPA" might be a true end, "Requirement" might be interstitial.
+  // For now, we'll treat them as cues to finalize a course and continue.
+  const interstitialOrEndKeywords = ["Requirement", "Term GPA", "Overall GPA", "UNIVERSITY GPA"];
+
+  let lineIndex = 0;
+
+  // Phase 1: Find the start of the actual course listings (this logic should be mostly okay)
+  while (lineIndex < lines.length && !inCourseSection) {
+    const currentLine = lines[lineIndex];
+    if (courseSectionStartKeywords.some(keyword => currentLine.toUpperCase().includes(keyword.toUpperCase()))) {
+      const currentLineHasHeaders = courseDataHeaderKeywords.every(kw => currentLine.toUpperCase().includes(kw.toUpperCase()));
+      const nextLine = lineIndex + 1 < lines.length ? lines[lineIndex + 1] : "";
+      const nextLineHasHeaders = courseDataHeaderKeywords.every(kw => nextLine.toUpperCase().includes(kw.toUpperCase()));
+
+      if (currentLineHasHeaders) {
+        inCourseSection = true;
+        lineIndex++; 
+        break;
+      } else if (nextLineHasHeaders) {
+        inCourseSection = true;
+        lineIndex += 2; 
+        break;
+      } else if (currentLine.toUpperCase().includes("COURSE (CLASS)")) {
+         if (nextLineHasHeaders) {
+            inCourseSection = true;
+            lineIndex += 2;
+            break;
+         } else {
+            for (let i = lineIndex + 1; i < lines.length; i++) {
+                if (courseCodePattern.test(lines[i])) {
+                    lineIndex = i;
+                    inCourseSection = true;
+                    break;
+                }
+                if (interstitialOrEndKeywords.some(keyword => lines[i].toUpperCase().includes(keyword.toUpperCase()))) break;
+            }
+            if(inCourseSection) break;
+         }
+      }
+    }
+    lineIndex++;
+  }
+
+  if (!inCourseSection) {
+    lineIndex = 0;
+    while(lineIndex < lines.length) {
+        if (courseCodePattern.test(lines[lineIndex])) {
+            inCourseSection = true;
+            break;
+        }
+        lineIndex++;
+    }
+    if (!inCourseSection) return [];
+  }
+
+  // Phase 2: Extract courses
+  let currentCourse: Partial<Course> = {};
+  let collectedDataForCourse: string[] = [];
+
+  for (; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+
+    // **MODIFIED BLOCK START**
+    if (interstitialOrEndKeywords.some(keyword => line.toUpperCase().includes(keyword.toUpperCase()))) {
+      // This line is a keyword. Finalize the course processed so far (if any).
+      if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+        if (typeof currentCourse.gradePoints === 'undefined') { // Ensure grade points are calculated
+            currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+        }
+        courses.push(currentCourse as Course);
+      }
+      // Reset for any potential new course or data block that might follow.
+      currentCourse = {};
+      collectedDataForCourse = [];
+      continue; // Skip this keyword line and process the next line
+    }
+    // **MODIFIED BLOCK END**
+
+    const courseCodeMatch = line.match(courseCodePattern);
+    if (courseCodeMatch) {
+      if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+        if (typeof currentCourse.gradePoints === 'undefined') {
+            currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+        }
+        courses.push(currentCourse as Course);
+      }
+      currentCourse = {
+        id: courseCodeMatch[1],
+        classNumber: courseCodeMatch[2],
+      };
+      collectedDataForCourse = [];
+      continue;
+    }
+
+    if (currentCourse.id && !currentCourse.title) {
+      currentCourse.title = line;
+      continue;
+    }
+
+    if (currentCourse.id && currentCourse.title) {
+      collectedDataForCourse.push(line);
+
+      if (!currentCourse.grade) {
+        for (const dataItem of collectedDataForCourse) {
+          if (gradePattern.test(dataItem)) {
+            currentCourse.grade = dataItem.toUpperCase();
+            collectedDataForCourse = collectedDataForCourse.filter(item => item.toUpperCase() !== currentCourse.grade);
+            break;
+          }
+        }
+      }
+
+      if (currentCourse.grade && typeof currentCourse.credits === 'undefined') {
+        for (const dataItem of collectedDataForCourse) {
+          if (creditsPattern.test(dataItem)) {
+            const creditValue = parseFloat(dataItem);
+            if (!isNaN(creditValue) && creditValue >= 0) {
+              currentCourse.credits = creditValue;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+    if (typeof currentCourse.gradePoints === 'undefined') {
+      currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+    }
+    courses.push(currentCourse as Course);
+  }
+
+  return courses;
+}
+
+// Reminder: Ensure your calculateGradePoints function is correctly defined or imported
+// For example, using your provided grade-utils.ts:
+// import { calculateGradePoints } from "./grade-utils"; // Adjust path as needed
+
+// If this function is in the same file as your grade-utils:
+// (The calculateGradePoints from your grade-utils.ts is good)
+// export const gradePointMap: Record<string, number> = { ... };
+// export function calculateGradePoints(credits: number, grade: string): number { ... }
+Explanation of the Change:
+
+interstitialOrEndKeywords: I've renamed endCourseSectionKeywords to be more descriptive, as lines like "Requirement" can appear within a list of courses for a single semester.
+continue; instead of break;: When one of these keywords is encountered:
+The system will finalize and add the currentCourse (if one was being built).
+It resets currentCourse and collectedDataForCourse.
+Crucially, it then uses continue; to move to the next line of the input text, rather than stopping the entire parsing process. This allows it to pick up courses that appear after such interstitial lines.
+To implement this fix:
+
+Go to the file where your main parsing function is located (likely src/utils/parseCourseData.ts).
+Replace the block of code that handles endCourseSectionKeywords (or interstitialOrEndKeywords) with the "MODIFIED BLOCK" shown above. Specifically, change break; to continue;.
+Important: In your GradesPage.tsx, you have import { parseCourseData, ... } from "@/utils/parseCourseData";. Ensure that the function you are editing in parseCourseData.ts is indeed the one being exported and used (whether it's named parseCourseData or parseTranscriptText inside that file). If you used my previously suggested name parseTranscriptText, you'd either rename it to parseCourseData in its definition or change the import in GradesPage.tsx to import { parseTranscriptText as parseCourseData, ... }.

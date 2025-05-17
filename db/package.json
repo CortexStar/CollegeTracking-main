@@ -1,0 +1,27 @@
+{
+  "name": "db",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:push": "drizzle-kit push --force --config=../drizzle.config.ts",
+    "db:seed": "tsx seed.ts",
+    "check": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings 0",
+    "lint:fix": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --fix"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.38.4",
+    "drizzle-zod": "^0.6.0",
+    "shared": "workspace:*",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.27.1",
+    "drizzle-seed": "^0.3.1",
+    "typescript": "5.6.3",
+    "tsx": "^4.19.1"
+  }
+}

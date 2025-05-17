@@ -1,0 +1,110 @@
+1  Replace just the semester‑name JSX
+Locate this chunk inside <AccordionTrigger>
+(I’m pasting the exact lines from your file):
+
+tsx
+Copy
+Edit
+{editingSemesterId === semester.id ? (
+  <form
+    onSubmit={(e) => {
+      e.preventDefault();
+      saveEditedSemesterName();
+    }}
+    onClick={(e) => e.stopPropagation()}
+    className="flex"
+  >
+    <Input
+      ref={inputRef}
+      className="h-8 min-w-[200px] text-xl font-medium border-0 shadow-none bg-transparent p-0 focus-visible:ring-0"
+      value={editedSemesterName}
+      onChange={(e) => setEditedSemesterName(e.target.value)}
+      onBlur={saveEditedSemesterName}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          setEditingSemesterId(null);
+          setEditedSemesterName("");
+        }
+      }}
+    />
+  </form>
+) : (
+  <span
+    className="text-base font-medium cursor-text"
+    onClick={(e) => e.stopPropagation()}
+    onDoubleClick={(e) => {
+      e.stopPropagation();
+      startEditingSemesterName(semester.id, semester.name);
+    }}
+    title="Double-click to edit"
+  >
+    {semester.name}
+  </span>
+)}
+Delete everything from the first {editingSemesterId … down to its closing ).
+
+Paste the new, 10‑line replacement exactly where the old block was:
+
+tsx
+Copy
+Edit
+{editingSemesterId === semester.id ? (
+  <EditableSpan
+    value={editedSemesterName}
+    onSave={(newVal) => saveEditedSemesterName(newVal)}
+  />
+) : (
+  <Editable
+    onEdit={() => startEditingSemesterName(semester.id, semester.name)}
+  >
+    {semester.name}
+  </Editable>
+)}
+2  Tidy the helper functions (two tiny edits)
+2‑a startEditingSemesterName
+Delete the focus setTimeout—the new span autofocusses:
+
+diff
+Copy
+Edit
+ const startEditingSemesterName = (id: string, currentName: string) => {
+   setEditingSemesterId(id);
+   setEditedSemesterName(currentName);
+-  setTimeout(() => {
+-    if (inputRef.current) {
+-      inputRef.current.focus();
+-      inputRef.current.select();
+-    }
+-  }, 50);
+ };
+2‑b saveEditedSemesterName
+Allow it to accept the new value from EditableSpan:
+
+diff
+Copy
+Edit
+-const saveEditedSemesterName = () => {
++const saveEditedSemesterName = (newName?: string) => {
+   if (!editingSemesterId) return;
+   setSemesters(prev =>
+     prev.map(semester =>
+-      semester.id === editingSemesterId
+-        ? { ...semester, name: editedSemesterName || semester.name }
++      semester.id === editingSemesterId
++        ? { ...semester, name: (newName ?? editedSemesterName) || semester.name }
+         : semester
+     )
+   );
+   …
+ }
+(No other call sites need changes—the optional param makes it backward‑compatible.)
+
+3  Remove now‑unused bits (optional but tidy)
+If nothing else in the file uses them, you can delete:
+
+tsx
+Copy
+Edit
+import { Input } from "@/components/ui/input";
+const inputRef = useRef<HTMLInputElement>(null);
+If other dialogs still use <Input>, leave that import.

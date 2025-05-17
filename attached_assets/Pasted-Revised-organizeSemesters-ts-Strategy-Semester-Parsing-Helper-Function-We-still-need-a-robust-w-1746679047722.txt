@@ -1,0 +1,237 @@
+Revised organizeSemesters.ts Strategy:
+
+Semester Parsing (Helper Function): We still need a robust way to parse semester names into year and term type (Fall, Spring, Summer) with a defined order for terms.
+Grouping Logic (Your Existing Logic):
+Your current logic that creates "FRESHMAN", "SOPHOMORE" groups will be kept.
+We'll add a specific rule: if a semester is a "Summer" semester, it forms its own group with a label like "SUMMER [YEAR]" (e.g., "SUMMER 2024").
+Assigning Sort Keys to Groups:
+For "FRESHMAN", "SOPHOMORE", etc., the sort key will be based on the year of their first semester (typically a Fall semester).
+For "SUMMER [YEAR]" groups, the sort key will be the [YEAR] and a term order that places it correctly (i.e., after Spring of that year and before Fall of that year).
+Sorting the Groups: The final array of OrganizedSemesterGroup objects will be sorted using these keys.
+Let's create a new version of organizeSemesters.ts.
+
+TypeScript
+
+// src/utils/organizeSemesters.ts
+
+import { Semester } from "./parseCourseData"; // Ensure this path is correct
+
+export interface OrganizedSemesterGroup {
+  yearLabel: string; // "FRESHMAN", "SOPHOMORE", "SUMMER 2024"
+  semesters: Semester[];
+  // Add properties to help sort these groups:
+  sortYear: number; // The primary year for sorting this group
+  sortTermOrder: number; // 1 for Spring-containing groups, 2 for Summer, 3 for Fall-containing
+}
+
+const termOrderInYear = {
+  SPRING: 1,
+  SUMMER: 2,
+  FALL: 3,
+  UNKNOWN: 4,
+};
+
+function getSemesterDetails(semesterName: string): { year: number; term: string; termOrder: number } {
+  const upperName = semesterName.toUpperCase();
+  let year = 0;
+  let term = "UNKNOWN";
+  let order = termOrderInYear.UNKNOWN;
+
+  const yearMatch = upperName.match(/\d{4}/);
+  if (yearMatch) {
+    year = parseInt(yearMatch[0], 10);
+  }
+
+  if (upperName.includes("SPRING")) {
+    term = "SPRING";
+    order = termOrderInYear.SPRING;
+  } else if (upperName.includes("SUMMER")) {
+    term = "SUMMER";
+    order = termOrderInYear.SUMMER;
+  } else if (upperName.includes("FALL")) {
+    term = "FALL";
+    order = termOrderInYear.FALL;
+  }
+  return { year, term, termOrder: order };
+}
+
+// Standard academic year labels
+const academicYearLabels = ["FRESHMAN", "SOPHOMORE", "JUNIOR", "SENIOR", "GRADUATE I", "GRADUATE II"];
+
+
+export function organizeSemesters(semesters: Semester[]): OrganizedSemesterGroup[] {
+  if (!semesters || semesters.length === 0) {
+    return [];
+  }
+
+  // Temporarily enrich semesters with parsed details for easier processing
+  const detailedSemesters = semesters.map(sem => ({
+    ...sem,
+    details: getSemesterDetails(sem.name),
+  })).sort((a, b) => { // Initial sort of all semesters chronologically
+    if (a.details.year !== b.details.year) {
+      return a.details.year - b.details.year;
+    }
+    return a.details.termOrder - b.details.termOrder;
+  });
+
+  const groups: OrganizedSemesterGroup[] = [];
+  const academicYearGroupMap: { [academicYearStartYear: number]: OrganizedSemesterGroup } = {};
+  let firstAcademicYearStartYear = -1;
+
+  // Determine the very first academic year's starting calendar year
+  if (detailedSemesters.length > 0) {
+    const firstSemDetails = detailedSemesters[0].details;
+    if (firstSemDetails.term === "FALL") {
+      firstAcademicYearStartYear = firstSemDetails.year;
+    } else { // Spring or Summer
+      firstAcademicYearStartYear = firstSemDetails.year - 1; // Academic year started in the previous calendar year
+    }
+  }
+
+
+  detailedSemesters.forEach(sem => {
+    const { year, term, termOrder } = sem.details;
+
+    if (term === "SUMMER") {
+      // Summer semesters form their own group
+      groups.push({
+        yearLabel: `SUMMER ${year}`,
+        semesters: [sem], // Contains only this summer semester
+        sortYear: year,
+        sortTermOrder: termOrderInYear.SUMMER,
+      });
+    } else if (term === "FALL" || term === "SPRING") {
+      // Determine which academic year this Fall/Spring semester belongs to
+      let academicYearStartCalendarYear = year;
+      if (term === "SPRING") {
+        academicYearStartCalendarYear = year - 1; // Spring YYYY is part of (YYYY-1) - YYYY academic year
+      }
+
+      let group = academicYearGroupMap[academicYearStartCalendarYear];
+      if (!group) {
+        const academicYearIndex = academicYearStartCalendarYear - firstAcademicYearStartYear;
+        const yearLabel = academicYearLabels[academicYearIndex] || `YEAR ${academicYearIndex + 1}`;
+        group = {
+          yearLabel: yearLabel,
+          semesters: [],
+          sortYear: academicYearStartCalendarYear, // This academic group is identified by its starting year
+          sortTermOrder: termOrderInYear.FALL, // Academic years groups (like Freshman) effectively start with Fall
+                                             // or are treated as a block that contains Fall/Spring.
+                                             // For sorting against a Summer group of the *same* calendar year,
+                                             // e.g. Summer 2024 (sortTermOrder=2) vs Fall 2024 (start of SOPHOMORE, sortTermOrder=3)
+                                             // This needs refinement if a "FRESHMAN" group (ending Spring 2024) needs to be compared to "SUMMER 2024".
+                                             // Let's set a group's sortTermOrder based on its *earliest* term.
+        };
+        academicYearGroupMap[academicYearStartCalendarYear] = group;
+        groups.push(group);
+      }
+      group.semesters.push(sem);
+    }
+  });
+
+  // Refine sortTermOrder for academic year groups (FRESHMAN, SOPHOMORE, etc.)
+  // and ensure semesters within them are sorted.
+  groups.forEach(group => {
+    if (group.yearLabel.startsWith("SUMMER ")) {
+        // Already set: sortTermOrder = termOrderInYear.SUMMER
+    } else {
+        // For groups like FRESHMAN, SOPHOMORE
+        // Their sort order should allow them to be placed correctly around Summer.
+        // A "FRESHMAN" group ending in "Spring 2024" should come *before* "SUMMER 2024".
+        // A "SOPHOMORE" group starting "Fall 2024" should come *after* "SUMMER 2024".
+        // The `group.sortYear` for "FRESHMAN" (F23,SP24) would be 2023.
+        // The `group.sortYear` for "SUMMER 2024" would be 2024.
+        // The `group.sortYear` for "SOPHOMORE" (F24,SP25) would be 2024.
+
+        // So, for sorting groups:
+        // FRESHMAN (sortYear: 2023, sortTermOrder: FALL (or a general academic year marker))
+        // SUMMER 2024 (sortYear: 2024, sortTermOrder: SUMMER)
+        // SOPHOMORE (sortYear: 2024, sortTermOrder: FALL)
+        // This means Summer will come before Fall of the same `sortYear`.
+        
+        // Ensure semesters within Fall/Spring groups are sorted (they should be from initial sort)
+        group.semesters.sort((a, b) => {
+            const detailsA = getSemesterDetails(a.name);
+            const detailsB = getSemesterDetails(b.name);
+            if (detailsA.year !== detailsB.year) return detailsA.year - detailsB.year;
+            return detailsA.termOrder - detailsB.termOrder;
+        });
+
+        // Determine the effective term order for the group for inter-group sorting
+        if (group.semesters.length > 0) {
+            // An academic year group containing Fall and Spring.
+            // If it ends with Spring, it should be "before" a Summer of that Spring's year.
+            // If it starts with Fall, it should be "after" a Summer of that Fall's year.
+            const lastSemesterInGroup = group.semesters[group.semesters.length - 1];
+            const lastSemDetails = getSemesterDetails(lastSemesterInGroup.name);
+            
+            const firstSemesterInGroup = group.semesters[0];
+            const firstSemDetails = getSemesterDetails(firstSemesterInGroup.name);
+
+            if (group.sortYear === lastSemDetails.year && lastSemDetails.term === "SPRING") {
+                 // This group (e.g. Freshman ending Spring 2024) effectively sorts as "Spring" for year 2024 context
+                 group.sortTermOrder = termOrderInYear.SPRING;
+            } else {
+                 group.sortTermOrder = termOrderInYear.FALL; // Default for academic years starting with Fall
+            }
+        }
+    }
+  });
+
+
+  // Sort the groups
+  groups.sort((a, b) => {
+    if (a.sortYear !== b.sortYear) {
+      return a.sortYear - b.sortYear;
+    }
+    // If years are the same (e.g., comparing "SUMMER 2024" with "SOPHOMORE" starting Fall 2024)
+    // SOPHOMORE's effective sortYear is 2024. Its sortTermOrder should be FALL (3).
+    // SUMMER 2024's sortYear is 2024. Its sortTermOrder is SUMMER (2).
+    // So Summer (2) comes before Fall (3).
+    // For FRESHMAN (ends Spring 2024, effective sortYear 2023 for its start),
+    // this will be correctly placed before SUMMER 2024.
+    // If a FRESHMAN group somehow had sortYear 2024 (e.g. started Spring 2024, no Fall 2023),
+    // then its sortTermOrder would be SPRING (1), placing it before SUMMER 2024 (2).
+    return a.sortTermOrder - b.sortTermOrder;
+  });
+
+  return groups;
+}
+Explanation of the Logic for Group Sorting:
+
+getSemesterDetails: This helper function parses a semester name (e.g., "Spring 2024") into its calendar year, term name ("SPRING"), and a numeric termOrder (Spring:1, Summer:2, Fall:3).
+
+Initial Semester Sort: All input semesters are first sorted chronologically using getSemesterDetails. This ensures that if "Spring 2024", "Summer 2024", and "Fall 2024" are all present, they are in this correct order before any grouping happens.
+
+Group Creation:
+
+Summer Semesters: If a semester is "SUMMER YYYY", a new group is created immediately with yearLabel: "SUMMER YYYY". Its sortYear is YYYY, and sortTermOrder is termOrderInYear.SUMMER.
+Fall/Spring Semesters (Academic Year Groups): These are grouped into "FRESHMAN", "SOPHOMORE", etc.
+The sortYear for such a group is the calendar year in which that academic year begins (e.g., for "FRESHMAN" with Fall 2023 and Spring 2024, the sortYear is 2023).
+The sortTermOrder for these academic year groups needs careful consideration.
+If a "FRESHMAN" group (Fall 2023, Spring 2024) needs to be sorted relative to "SUMMER 2024":
+FRESHMAN: sortYear: 2023.
+SUMMER 2024: sortYear: 2024.
+This correctly sorts FRESHMAN before SUMMER 2024.
+If "SUMMER 2024" needs to be sorted relative to "SOPHOMORE" (Fall 2024, Spring 2025):
+SUMMER 2024: sortYear: 2024, sortTermOrder: termOrderInYear.SUMMER (2).
+SOPHOMORE: sortYear: 2024, sortTermOrder: termOrderInYear.FALL (3) because it starts with Fall.
+This correctly sorts SUMMER 2024 before SOPHOMORE.
+The refinement loop groups.forEach(group => { ... }) attempts to assign a more accurate sortTermOrder to the academic year groups. If an academic year group (like Freshman) ends in a Spring term (e.g., Spring 2024), its effective sortTermOrder for comparison within the year 2024 should be termOrderInYear.SPRING (1) to ensure it comes before SUMMER 2024 (which has sortTermOrder 2). However, the sortYear difference usually handles this. The primary concern is when an Academic Year group and a Summer group share the same sortYear for comparison (e.g., Summer 2024 vs. Sophomore starting Fall 2024).
+Final Group Sort: The groups array (which now contains OrganizedSemesterGroup objects) is sorted:
+
+Primarily by group.sortYear.
+Secondarily by group.sortTermOrder.
+This sorting strategy ensures that:
+
+"FRESHMAN" (e.g., Fall 2023, Spring 2024) with sortYear: 2023 comes before "SUMMER 2024" with sortYear: 2024.
+"SUMMER 2024" with sortYear: 2024 and sortTermOrder: 2 comes before "SOPHOMORE" (e.g., Fall 2024, Spring 2025) with sortYear: 2024 and sortTermOrder: 3.
+To Implement:
+
+Replace your src/utils/organizeSemesters.ts with the code above.
+Ensure the Semester interface import path is correct.
+Test with your semester data, including adding a "Summer 2024" semester. The "SUMMER 2024" category heading should now appear between the "FRESHMAN" and "SOPHOMORE" category headings.
+The academicYearLabels array determines the names for Fall/Spring groupings.
+The firstAcademicYearStartYear logic tries to correctly anchor the "FRESHMAN", "SOPHOMORE" labels even if the student starts in Spring or Summer.
+This approach specifically targets creating separate groups for Summer terms and then sorting these groups (along with your existing academic year groups) into the correct overall chronological order.

@@ -1,0 +1,128 @@
+Hey Replit, here’s a clear rollback plan: strip the whole login / auth layer so the app runs entirely in “guest” mode, while leaving one small placeholder flag (AUTH_ENABLED = false) for future work.
+Follow the numbered steps exactly; most are delete‑only changes, so risk is low.
+
+1 Environment & config
+.replit → remove the entire [env] block for auth (AUTH, VITE_AUTH, Google keys).
+
+toml
+Copy
+Edit
+# Delete these lines ↓↓↓
+#[env]
+#AUTH = "Y"
+#VITE_AUTH = "Y"
+#VITE_GOOGLE_CLIENT_ID = "…"
+#GOOGLE_CLIENT_ID       = "…"
+#GOOGLE_CLIENT_SECRET   = "…"
+client/src/lib/config.ts
+Replace file contents with a permanent off‑switch stub:
+
+ts
+Copy
+Edit
+export const AUTH_ENABLED = false;   // future toggle placeholder
+server/config/auth.ts (if present) – same one‑liner:
+
+ts
+Copy
+Edit
+export const AUTH_ENABLED = false;
+2 Backend cleanup (server/)
+Delete these files & references:
+
+server/routes/auth.ts (any /api/auth/* handlers)
+
+server/middleware/requireAuth.ts (and any imports)
+
+Passport / cookie‑session setup (passport.ts, session.ts, etc.)
+
+websocket.ts auth guards (if they only check sessions)
+
+server/index.ts
+
+Remove app.use(requireAuth) lines.
+
+Nuke any app.post("/api/auth/google", …) or similar routes.
+
+package.json (root/server)
+
+npm uninstall passport passport-google-oauth20 express-session (and any auth libs)
+
+Remove the scripts db:seed:user or similar if they exist solely for test users.
+
+Database – leave user table in place if other tables FK to it; otherwise ignore.
+
+3 Frontend cleanup (client/)
+Delete entire pages/components
+
+bash
+Copy
+Edit
+src/pages/auth-page.tsx
+src/components/RequireAuth.tsx
+src/lib/protected-route.tsx
+src/hooks/use-auth.ts (or similar)
+src/App.tsx (router)
+
+Import only Wouter’s <Route> – drop ProtectedRoute aliasing.
+
+Delete the /auth route altogether.
+
+Change every formerly protected route back to plain <Route>.
+
+Example diff:
+
+diff
+Copy
+Edit
+-const SecureRoute = AUTH_ENABLED ? (ProtectedRoute as any) : Route;
+…
+-<SecureRoute path="/course" component={Home} />
++<Route path="/course" component={Home} />
+Nav bar / header
+
+Remove “Login” / “Logout” buttons.
+
+If a user dropdown existed, replace with nothing or static “Guest”.
+
+TanStack Query cache keys – delete useSession() calls; if components expect user, give them dummy props { id:"guest" } until you revisit auth.
+
+4 TypeScript & eslint
+Run pnpm lint – it will flag orphaned imports (ProtectedRoute, useAuth, etc.).
+Delete or rewrite as needed; aim for zero TS errors.
+
+5 Dependency & lockfile scrub
+bash
+Copy
+Edit
+cd ~/WebsitePortfolio
+pnpm remove @react-oauth/google jwt-decode dotenv-flow passport \
+            passport-google-oauth20 express-session
+pnpm install
+(leave dotenv if other code still uses it for DB creds.)
+
+6 Test & commit
+pnpm turbo run dev – app should start with no auth warnings.
+
+Visit /course, /grades etc. directly – they should load fine.
+
+Remove any remaining console.logs referencing import.meta.env.VITE_AUTH.
+
+Commit message suggestion:
+
+arduino
+Copy
+Edit
+chore: remove Google/passport auth; app now runs fully unauthenticated
+Outcome
+Codebase is free of all auth logic; only a dormant AUTH_ENABLED = false flag remains.
+
+Re‑adding auth later will be a clean green‑field effort without today’s half‑wired pieces.
+
+Go ahead and apply those deletions / edits; ping me if any type errors still appear after the cleanup.
+
+
+
+
+
+

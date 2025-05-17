@@ -1,0 +1,108 @@
+1 · Add the semester‑organising code to Replit
+In your Replit file tree create
+
+bash
+Copy
+Edit
+src/utils/organizeSemesters.ts
+Paste the whole snippet below (it’s exactly the one I wrote earlier— you can just copy‑paste):
+
+ts
+Copy
+Edit
+/* src/utils/organizeSemesters.ts
+   -------------------------------------------------------- */
+import { SemesterSummary } from './parseCourseData';
+
+export interface Semester {
+  /** e.g. 'Fall 2023'  */
+  name: string;
+  summary: SemesterSummary;
+}
+export interface SemesterSection {
+  label: string;          // 'Freshman Year', 'Summer 2024', …
+  semesters: Semester[];
+}
+
+const TERM_ORDER: Record<string, number> = {
+  spring: 1,
+  summer: 2,
+  fall:   3,
+  winter: 4,
+};
+const YEAR_LABELS = [
+  'Freshman Year',
+  'Sophomore Year',
+  'Junior Year',
+  'Senior Year',
+];
+
+function parseName(name: string) {
+  const m = name.match(/\b(Spring|Summer|Fall|Winter)\s+(\d{4})/i);
+  return m ? { term: m[1].toLowerCase(), year: +m[2] } : null;
+}
+function cmp(a: Semester, b: Semester) {
+  const pa = parseName(a.name), pb = parseName(b.name);
+  if (!pa || !pb) return 0;
+  if (pa.year !== pb.year) return pa.year - pb.year;
+  return TERM_ORDER[pa.term] - TERM_ORDER[pb.term];
+}
+
+export function organizeSemesters(input: Semester[]): SemesterSection[] {
+  const semesters = [...input].sort(cmp);
+  const sections: SemesterSection[] = [];
+  let nonSummerCount = 0;
+
+  for (const s of semesters) {
+    const meta = parseName(s.name);
+    if (!meta) {                         // catch‑all
+      (sections.find(x => x.label === 'Misc') ??
+       sections[sections.push({ label: 'Misc', semesters: [] }) - 1])
+      .semesters.push(s);
+      continue;
+    }
+
+    // summer gets its own bucket
+    if (meta.term === 'summer') {
+      const lbl = `Summer ${meta.year}`;
+      (sections.find(x => x.label === lbl) ??
+       sections[sections.push({ label: lbl, semesters: [] }) - 1])
+      .semesters.push(s);
+      continue;
+    }
+
+    // non‑summer → freshman/soph/junior/… (two terms ≈ one year)
+    const idx = Math.floor(nonSummerCount / 2);
+    const lbl = YEAR_LABELS[idx] ?? `Year ${idx + 1}`;
+    (sections.find(x => x.label === lbl) ??
+     sections[sections.push({ label: lbl, semesters: [] }) - 1])
+    .semesters.push(s);
+    nonSummerCount++;
+  }
+
+  // final chronological sort of the sections
+  sections.sort((a, b) => cmp(a.semesters[0], b.semesters[0]));
+  return sections;
+}
+Use it wherever you build the sidebar:
+
+tsx
+Copy
+Edit
+import { organizeSemesters } from '@/utils/organizeSemesters';
+
+const sections = useMemo(() => organizeSemesters(semesters), [semesters]);
+
+return (
+  <>
+    {sections.map(sec => (
+      <div key={sec.label} className="mb-6">
+        <h3 className="font-semibold">{sec.label}</h3>
+        {sec.semesters.map(s => (
+          <SemesterCard key={s.name} semester={s} />
+        ))}
+      </div>
+    ))}
+  </>
+);
+(If you’ve added the input‑validation I suggested, blank names will be rejected before they ever reach this function.)

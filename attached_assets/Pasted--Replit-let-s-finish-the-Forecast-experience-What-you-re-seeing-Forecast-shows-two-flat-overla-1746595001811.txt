@@ -1,0 +1,120 @@
+🛠️ Replit — let’s finish the Forecast experience
+What you’re seeing
+Forecast shows two flat, overlapping lines because:
+
+avg / high / low are null for every completed semester
+
+With connectNulls, Recharts draws the first numeric point it finds — that’s the first future row — so the line begins there and looks flat.
+
+Every future row gets the same constant value (lastReal ± 0.3).
+
+No slope → no sense of projection.
+
+Bottom of the card is clipped by your site‑wide footer gradient so X‑axis labels and the 0‑line are barely visible.
+
+Below is a targeted patch set.
+
+1 · Seed the forecast with the last real semester
+Replace the “for completed rows” block:
+
+diff
+Copy
+Edit
+- if (s.gpa !== null) {
+-   return { ...s, avg: null, high: null, low: null };
+- }
++ if (s.gpa !== null) {
++   // copy values so the forecast line joins history seamlessly
++   return { ...s, avg: s.gpa, high: s.gpa, low: s.gpa };
++ }
+This draws the dashed Avg Forecast starting exactly at that last GPA point rather than a term later.
+
+2 · Add a simple trend instead of flat bands
+Linear glide toward the overall average (feel free to swap in a better model):
+
+ts
+Copy
+Edit
+const classAverage = avgGpa;                // reuse what you’ve computed
+const horizon      = 6;                     // # of future semesters
+
+// inside the while loop that generates future rows
+const step = idx => idx / horizon;          // fraction 0 ➜ 1
+
+result.push({
+  ...base,
+  avg: lastReal + (classAverage - lastReal) * step(i),
+  high: Math.min(4, lastReal + 0.4 - 0.1 * step(i)),
+  low:  Math.max(0, lastReal - 0.4 + 0.1 * step(i)),
+});
+Now High / Low converge slightly as time goes on, signalling shrinking uncertainty.
+
+3 · Make the shaded band actually span between lines
+Use the stack trick in Recharts:
+
+tsx
+Copy
+Edit
+<Area
+  type="monotone"
+  dataKey="high"
+  stackId="band"
+  stroke="transparent"
+  fill={HIGH}
+  fillOpacity={0.06}
+  connectNulls
+/>
+<Area
+  type="monotone"
+  dataKey="low"
+  stackId="band"
+  stroke="transparent"
+  fill="#ffffff"
+  fillOpacity={0}          // invisible, only closes the band
+  connectNulls
+/>
+The first area fills downwards to whatever’s underneath in the same stack (i.e., low), giving you the translucent ribbon.
+
+4 · Fix clipped bottom axis
+Your layout has a footer with a top‑gradient overlay. Two quick options:
+
+css
+Copy
+Edit
+/* easiest */
+.card-with-chart { padding-bottom: 2rem; }
+
+/* or remove the overlay strictly under the chart */
+footer::before { display: none; }
+And bump the chart margin:
+
+tsx
+Copy
+Edit
+<LineChart … margin={{ top: 20, right: 36, left: 12, bottom: 24 }}>
+5 · Quality‑of‑life touches
+Change	Snippet
+Round line ends	strokeLinecap="round" on every <Line>
+Prevent duplicate axis labels	interval="preserveStartEnd" on <XAxis>
+Tooltip label clarity	labelFormatter={(t)=>\Term: ${t}`}`
+
+Drop‑in diff summary
+Forecast seeding: copy gpa into avg/high/low for completed semesters.
+
+Trend loop: gradually move values toward the overall average while reducing the high/low spread.
+
+Area stackId = “band” to shade between high & low.
+
+Chart margin / card padding to reveal X‑axis.
+
+After those four tweaks, Forecast will:
+
+extend through Fall 2026 & Spring 2027
+
+branch smoothly off the last real GPA
+
+show a tapered uncertainty ribbon
+
+sit fully visible above the footer gradient.
+
+Ping me if you’d like a fancier regression (e.g., Holt‑Winters) or unit tests around generateFutureSemesters.

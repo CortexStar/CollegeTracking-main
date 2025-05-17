@@ -1,0 +1,23 @@
+{
+  "name": "@packages/queues",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "worker": "tsx worker.ts",
+    "check": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings 0",
+    "lint:fix": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --fix"
+  },
+  "dependencies": {
+    "bullmq": "^5.52.1",
+    "db": "workspace:*",
+    "ioredis": "^5.6.1",
+    "redis": "^5.0.1",
+    "shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1",
+    "typescript": "5.6.3"
+  }
+}

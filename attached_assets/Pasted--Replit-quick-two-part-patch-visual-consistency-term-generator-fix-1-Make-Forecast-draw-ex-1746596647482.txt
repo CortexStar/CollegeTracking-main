@@ -1,0 +1,89 @@
+🔧 Replit, quick two‑part patch
+(visual consistency + term generator fix)
+
+1 · Make Forecast draw exactly like History
+Changes
+
+diff
+Copy
+Edit
+// 🔹 Avg Forecast line
+- <Line
+-   type="monotone"
+-   dataKey="avg"
+-   stroke={AVG}
+-   strokeWidth={2}
+-   strokeLinecap="round"
+-   strokeDasharray="4 4"    // ⬅ remove
+-   dot={false}              // ⬅ change
+-   connectNulls
+- />
++ <Line
++   type="monotone"
++   dataKey="avg"
++   stroke={GRADIENT_FROM}    // same palette as history
++   strokeWidth={3}
++   strokeLinecap="round"
++   dot={{ r: 6, stroke: "white", strokeWidth: 2, fill: GRADIENT_FROM }}
++   activeDot={{ r: 7 }}
++   connectNulls
++ />
+
+// 🔹 High / Low lines – thinner but with dots
+<Line … strokeWidth={2} dot={{ r:4, fill:HIGH }} … />
+<Line … strokeWidth={2} dot={{ r:4, fill:LOW  }} … />
+Results:
+
+identical curve tension (type="monotone")
+
+node dots at every term (historical and forecast)
+
+high / low keep visual hierarchy but still clickable.
+
+2 · Fix duplicate “Spring 2025” & add “Spring 2027”
+The bug is in the season/year math when the last term was Fall.
+Replace the chunk that derives the first future season/year:
+
+diff
+Copy
+Edit
+if (lastTermText.includes("Fall")) {
+-  season = "Spring";
+-  year = parseInt(match[0]);          // stays same 2024 ⇒ dup!
++  season = "Spring";
++  year   = parseInt(match![0]) + 1;   // advance to 2025
+} else if (lastTermText.includes("Spring")) {
+  season = "Fall";
+  year   = parseInt(match![0]);
+}
+…and tighten the generator loop:
+
+ts
+Copy
+Edit
+while (true) {
+  // push new semester …
+
+  if (yearLevel === "Senior" && season === "Spring") break;
+
+  // advance term
+  const nextIsSpring = season === "Fall";
+  season = nextIsSpring ? "Spring" : "Fall";
+  if (!nextIsSpring) year += 1;         // switch Spring→Fall keeps year, Fall→Spring adds one
+
+  // promote class year **after** Spring term
+  if (season === "Fall" && levelIndex < 3) levelIndex++;
+
+  yearLevel = levelOrder[levelIndex];
+}
+Now the series is:
+
+yaml
+Copy
+Edit
+… Fall 2024  (last real)
+   Spring 2025
+   Fall 2025
+   Spring 2026
+   Fall 2026
+   Spring 2027  ✅  (Senior Spring)

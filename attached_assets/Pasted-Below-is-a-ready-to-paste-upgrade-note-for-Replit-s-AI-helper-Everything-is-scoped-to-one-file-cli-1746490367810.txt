@@ -1,0 +1,87 @@
+Below is a ready‑to‑paste upgrade note for Replit’s AI‑helper.
+Everything is scoped to one file (client/src/pages/grades.tsx) so the UI won’t change at all—only the missing “blank course” workflow is fixed.
+
+✨ Fix: “Add Course” should create an empty row when the user submits a blank form
+1 — Locate the addCourseToSemester function
+(≈ line 340 in the current file)
+
+2 — Replace the whole function with the block below
+tsx
+Copy
+Edit
+// ─── helpers ──────────────────────────────────────────────────────────────
+import { nanoid } from "nanoid";
+
+// create a placeholder course the user can fill in later
+const makeBlankCourse = (): Course => ({
+  id: nanoid(6),          // keeps Drag‑n‑Drop stable
+  title: "",
+  grade: "",
+  credits: 0,
+  gradePoints: 0,
+});
+
+// ─── main action ──────────────────────────────────────────────────────────
+const addCourseToSemester = () => {
+  if (!currentSemesterId) return;
+
+  // ① Decide what we’re adding
+  let coursesToAdd: Course[];
+
+  if (newCourseData.trim()) {
+    // user pasted something → try to parse it
+    const parsed = parseCourseData(newCourseData);
+
+    if (parsed.length === 0) {
+      toast({
+        title: "Error",
+        description: "Could not parse any valid courses from the input",
+        variant: "destructive",
+      });
+      return;
+    }
+    coursesToAdd = parsed;
+  } else {
+    // blank form → add ONE editable placeholder
+    coursesToAdd = [makeBlankCourse()];
+  }
+
+  // ② Update the right semester
+  setSemesters((prev) =>
+    prev.map((semester) => {
+      if (semester.id !== currentSemesterId) return semester;
+
+      const updatedCourses = [...semester.courses, ...coursesToAdd];
+
+      const totalCredits = updatedCourses.reduce(
+        (sum, c) => sum + c.credits,
+        0
+      );
+      const totalGradePoints = updatedCourses.reduce(
+        (sum, c) => sum + c.credits * c.gradePoints,
+        0
+      );
+
+      return {
+        ...semester,
+        courses: updatedCourses,
+        totalCredits,
+        totalGradePoints,
+        gpa:
+          totalCredits > 0
+            ? parseFloat((totalGradePoints / totalCredits).toFixed(2))
+            : 0,
+      };
+    })
+  );
+
+  // ③ clean‑up dialog state
+  setNewCourseData("");
+  setIsAddCourseDialogOpen(false);
+};
+Why this works
+
+If the textarea is empty we don’t early‑return—we push a makeBlankCourse() row instead.
+
+Existing inline‑edit handlers (startEditingCourse) already let the user click‑to‑type inside the empty row, so no extra UI code is needed.
+

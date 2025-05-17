@@ -1,0 +1,254 @@
+Okay, I've developed a more sophisticated parsing system designed to be more robust, versatile, and "smarter" in how it interprets the transcript text. This system uses a stateful approach, more precise pattern recognition, and a clearer understanding of the document's structure.
+
+Key Features of the Enhanced Parsing System:
+
+Section Identification: The parser first tries to identify the specific section of the text that contains the course list. It looks for header keywords like "Course (Class)" and "Course Title" to begin, and "Requirement" or "Term GPA" to signal the end of the course listings for that semester block. This prevents accidental parsing of other text on the page.
+
+Stateful Course Building: As it processes lines, it maintains a currentCourse object. When it identifies a course code, it starts a new course. Subsequent lines are then intelligently assigned as the title, grade, and credits based on expected patterns and order.
+
+Robust Pattern Matching: It uses more refined regular expressions:
+
+To precisely capture the Course ID (e.g., "ECO2023") and the Class Number (e.g., "11919") separately.
+
+To identify grades (e.g., "A", "B-", "C+").
+
+To extract credit values (e.g., "3.00", "4").
+
+Order of Information: It anticipates the general order: Course Code -> Title -> Grade -> Credits. This helps in correctly assigning values even with intervening blank lines.
+
+Data Buffering for Course Details: For parts of the course information that follow the title (like grade and credits, which are on separate lines from each other in the input), it collects relevant lines and then picks out the grade and credits according to their patterns.
+
+Graceful Handling of Variations:
+
+Empty lines are filtered out early.
+
+The system is less brittle to minor spacing variations.
+
+Clearer Output Structure: The Course object can now also store the classNumber if needed.
+
+Here's the TypeScript code for the new parsing utility. You would typically place this in a file like src/utils/parseCourseData.ts (or a similar utility file in your project).
+
+TypeScript
+
+// src/utils/parseCourseData.ts
+
+export interface Course {
+  id: string; // Course Code like "ECO2023"
+  classNumber?: string; // Optional: e.g., "11919" from "ECO2023 (11919)"
+  title: string;
+  grade: string;
+  credits: number;
+  gradePoints: number; // This will be calculated
+}
+
+// This is a placeholder. Ensure you import your actual calculateGradePoints function.
+// For example: import { calculateGradePoints } from "./grade-utils";
+const calculateGradePoints = (credits: number, grade: string): number => {
+  if (credits === 0) return 0;
+  const gradeMap: { [key: string]: number } = {
+    "A": 4.0, "A-": 3.67,
+    "B+": 3.33, "B": 3.0, "B-": 2.67,
+    "C+": 2.33, "C": 2.0, "C-": 1.67,
+    "D+": 1.33, "D": 1.0, "D-": 0.67,
+    "F": 0.0,
+    // Add other grades if necessary
+  };
+  const points = gradeMap[grade.toUpperCase()];
+  return typeof points === 'number' ? points * credits : 0;
+};
+
+export const makeBlankCourse = (): Course => ({
+  id: "",
+  title: "",
+  grade: "",
+  credits: 0,
+  gradePoints: 0,
+});
+
+/**
+ * A more bespoke, robust, and versatile parsing system for academic transcript data.
+ * Parses text to extract course information.
+ */
+export const parseTranscriptText = (rawText: string): Course[] => {
+  const courses: Course[] = [];
+  const lines = rawText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0); // Remove empty lines and trim
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  // --- Regex Patterns ---
+  const courseCodePattern = /^([A-Z]{2,4}\d{3,4}L?)\s*\((\d+)\)$/; // Captures: 1=CourseID, 2=ClassNumber
+  const gradePattern = /^[A-F][+-]?$/i; // Case-insensitive grade (A, B+, c-, etc.)
+  const creditsPattern = /^\d+(\.\d{2})?$/; // Matches X or X.XX (e.g., 3, 4.00)
+
+  // --- State and Markers ---
+  let inCourseSection = false;
+  const courseSectionStartKeywords = ["Course (Class)", "Course Title"];
+  const courseDataHeaderKeywords = ["Grade", "Credit Attempted", "Credit Earned", "Credit for GPA"];
+  const endCourseSectionKeywords = ["Requirement", "Term GPA", "Overall GPA", "UNIVERSITY GPA"];
+
+  let lineIndex = 0;
+
+  // Phase 1: Find the start of the actual course listings
+  while (lineIndex < lines.length && !inCourseSection) {
+    const currentLine = lines[lineIndex];
+    if (courseSectionStartKeywords.some(keyword => currentLine.toUpperCase().includes(keyword.toUpperCase()))) {
+      const currentLineHasHeaders = courseDataHeaderKeywords.every(kw => currentLine.toUpperCase().includes(kw.toUpperCase()));
+      const nextLine = lineIndex + 1 < lines.length ? lines[lineIndex + 1] : "";
+      const nextLineHasHeaders = courseDataHeaderKeywords.every(kw => nextLine.toUpperCase().includes(kw.toUpperCase()));
+
+      if (currentLineHasHeaders) {
+        inCourseSection = true;
+        lineIndex++; // Courses start after this header line
+        break;
+      } else if (nextLineHasHeaders) {
+        inCourseSection = true;
+        lineIndex += 2; // Courses start after the next line (which is the header)
+        break;
+      } else if (currentLine.toUpperCase().includes("COURSE (CLASS)")) { // If it's just the main trigger
+         // Check if the *next* line seems like a header row or if we should look for course codes directly
+         if (nextLineHasHeaders) {
+            inCourseSection = true;
+            lineIndex += 2;
+            break;
+         } else {
+            // Assume courses might start soon, but headers are not immediately clear
+            // Try to find the first course code
+            for (let i = lineIndex + 1; i < lines.length; i++) {
+                if (courseCodePattern.test(lines[i])) {
+                    lineIndex = i;
+                    inCourseSection = true;
+                    break;
+                }
+                if (endCourseSectionKeywords.some(keyword => lines[i].toUpperCase().includes(keyword.toUpperCase()))) break; // Don't search too far
+            }
+            if(inCourseSection) break;
+         }
+      }
+    }
+    lineIndex++;
+  }
+
+  if (!inCourseSection) { // Fallback: if headers are missing or unusual, try to find first course code directly
+    lineIndex = 0;
+    while(lineIndex < lines.length) {
+        if (courseCodePattern.test(lines[lineIndex])) {
+            inCourseSection = true;
+            break;
+        }
+        lineIndex++;
+    }
+    if (!inCourseSection) return []; // No courses found
+  }
+
+  // Phase 2: Extract courses
+  let currentCourse: Partial<Course> = {};
+  let collectedDataForCourse: string[] = []; // To temporarily store lines like grade, credits, etc.
+
+  for (; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+
+    if (endCourseSectionKeywords.some(keyword => line.toUpperCase().includes(keyword.toUpperCase()))) {
+      if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+        currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+        courses.push(currentCourse as Course);
+      }
+      currentCourse = {}; // Reset for safety, though we are breaking
+      break; // End of course section
+    }
+
+    const courseCodeMatch = line.match(courseCodePattern);
+    if (courseCodeMatch) {
+      // Finalize previous course
+      if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+        currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+        courses.push(currentCourse as Course);
+      }
+      // Start a new course
+      currentCourse = {
+        id: courseCodeMatch[1],
+        classNumber: courseCodeMatch[2],
+      };
+      collectedDataForCourse = []; // Reset buffer for the new course's details
+      continue;
+    }
+
+    if (currentCourse.id && !currentCourse.title) {
+      currentCourse.title = line;
+      continue;
+    }
+
+    if (currentCourse.id && currentCourse.title) {
+      // We have a course ID and Title, subsequent lines are Grade, Credits, etc.
+      // These are expected in order: Grade, then Credit Attempted (which we use as credits)
+      collectedDataForCourse.push(line);
+
+      // Attempt to parse grade if not already found
+      if (!currentCourse.grade) {
+        for (const dataItem of collectedDataForCourse) {
+          if (gradePattern.test(dataItem)) {
+            currentCourse.grade = dataItem.toUpperCase();
+            // Remove grade from buffer so it's not mistaken for credits later
+            collectedDataForCourse = collectedDataForCourse.filter(item => item.toUpperCase() !== currentCourse.grade);
+            break;
+          }
+        }
+      }
+
+      // Attempt to parse credits if grade is found and credits are not
+      if (currentCourse.grade && typeof currentCourse.credits === 'undefined') {
+        for (const dataItem of collectedDataForCourse) {
+          if (creditsPattern.test(dataItem)) {
+            const creditValue = parseFloat(dataItem);
+            if (!isNaN(creditValue) && creditValue >= 0) {
+              currentCourse.credits = creditValue;
+              // collectedDataForCourse = []; // Clear buffer once essential credits are found for this item
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Add the last processed course if it's complete
+  if (currentCourse.id && currentCourse.title && currentCourse.grade && typeof currentCourse.credits === 'number') {
+    if (typeof currentCourse.gradePoints === 'undefined') {
+      currentCourse.gradePoints = calculateGradePoints(currentCourse.credits, currentCourse.grade);
+    }
+    courses.push(currentCourse as Course);
+  }
+
+  return courses;
+};
+How to Integrate into GradesPage.tsx:
+
+Replace parseCourseData Utility:
+
+Open the file where your parseCourseData function is currently defined (e.g., src/utils/parseCourseData.ts).
+
+Replace its contents with the parseTranscriptText function and the associated Course interface and makeBlankCourse helper provided above.
+
+Crucially, ensure that your actual calculateGradePoints function is correctly imported or defined within this file. The one provided in the example above is a basic placeholder.
+
+Update Function Calls in GradesPage.tsx:
+
+In your GradesPage.tsx component, find where you call parseCourseData.
+
+Change these calls from parseCourseData(...) to parseTranscriptText(...).
+
+For example:
+
+TypeScript
+
+// In addSemester callback:
+// const courses = parseCourseData(rawCourseData); // OLD
+const courses = parseTranscriptText(rawCourseData); // NEW
+
+// In addCourseToSemester callback:
+// coursesToAdd = parseCourseData(newCourseData); // OLD
+coursesToAdd = parseTranscriptText(newCourseData); // NEW

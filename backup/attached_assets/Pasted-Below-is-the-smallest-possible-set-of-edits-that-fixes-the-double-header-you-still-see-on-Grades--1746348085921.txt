@@ -1,0 +1,131 @@
+Below is the smallest possible set of edits that fixes
+
+the double header you still see on Grades & Forecasting (and any other page), and
+
+the right‑click → Upload Image feature on the Landing page.
+
+If you do only these four micro‑changes, nothing else in the site will move.
+
+1 · Make sure only one file renders <Header> / <Footer>
+components/Layout.tsx  (leave exactly like this)
+tsx
+Copy
+Edit
+import Header from "@/components/header";
+import Footer from "@/components/footer";
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-900">
+      <Header />
+      <main className="flex-1 overflow-hidden">{children}</main>
+      <Footer />
+    </div>
+  );
+}
+pages/_app.tsx  (if you are on the pages router)
+(app‑router users: do the equivalent in app/layout.tsx)
+
+tsx
+Copy
+Edit
+import type { AppProps } from "next/app";
+import Layout from "@/components/layout";
+import "@/styles/globals.css";
+
+export default function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <Layout>
+      <Component {...pageProps} />
+    </Layout>
+  );
+}
+Stop – no other file in the repo should import Header or Footer.
+Do a quick search and delete any line that looks like
+import Header from "@/components/header" or <Header /> / <Footer />.
+
+Your GradesForecastingPage.tsx, ClassesPage.tsx, TextbookPage.tsx, etc. should now look like plain React components that return only their own content – no layout, no header, no footer.
+
+2 · Landing page: give Radix the trigger back
+Open pages/index.tsx (or wherever you named the landing component) and replace just the outer JSX with this exact block.
+
+tsx
+Copy
+Edit
+/* …all your imports & state stay unchanged… */
+
+return (
+  <ContextMenu>
+    {/*  this <div> IS the trigger – asChild prevents Radix from adding a <button> */}
+    <ContextMenuTrigger asChild>
+      <div
+        className="flex-1 flex items-center justify-center overflow-hidden"
+        style={
+          backgroundImage
+            ? {
+                backgroundImage: `url(${backgroundImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : {}
+        }
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !backgroundImage && fileInputRef.current?.click()}
+      >
+        {!backgroundImage && (
+          <div
+            ref={dropZoneRef}
+            className={`w-3/4 max-w-md h-56 border-2 border-dashed rounded-lg
+              ${isDragging
+                ? "border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                : "border-gray-300 dark:border-gray-700"}
+              flex flex-col items-center justify-center cursor-pointer`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-10 w-10 text-gray-400 dark:text-gray-600 mb-3"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2 1.6-1.6a2 2 0 012.8 0L20 14M12 8h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p className="text-gray-500 dark:text-gray-400">
+              Click or drag an image here
+            </p>
+          </div>
+        )}
+
+        {/* hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImageUpload}
+        />
+      </div>
+    </ContextMenuTrigger>
+
+    {/* right‑click menu */}
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => fileInputRef.current?.click()}>
+        Upload image
+      </ContextMenuItem>
+      {backgroundImage && (
+        <ContextMenuItem
+          onSelect={() => {
+            setBackgroundImage(null);
+            localStorage.removeItem("backgroundImage");
+            toast({ title: "Success", description: "Image removed" });
+          }}
+        >
+          Remove image
+        </ContextMenuItem>
+      )}
+    </ContextMenuContent>
+  </ContextMenu>
+);
+No other code in Landing.tsx changes.

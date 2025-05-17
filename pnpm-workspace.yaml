@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'client'
+  - 'server'
+  - 'shared'
+  - 'packages/*'
+  - 'db'
+  - 'tests'

@@ -1,0 +1,247 @@
+Below is the single patch‑set that delivers all requested behaviour in one go.
+
+1 · lib/bookStore.ts — central “database”
+ts
+Copy
+Edit
+// client/src/lib/bookStore.ts
+export interface BookMeta {
+  id: string;          // uuid
+  title: string;
+  author: string;
+  url: string;         // blob URL
+}
+
+const KEY = "books";
+const listeners = new Set<() => void>();
+
+export function onBooksChange(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function getBooks(): BookMeta[] {
+  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); }
+  catch { return []; }
+}
+
+export function getBook(id: string) {
+  return getBooks().find(b => b.id === id);
+}
+
+export function saveBook(b: BookMeta) {
+  localStorage.setItem(KEY, JSON.stringify([...getBooks(), b]));
+  listeners.forEach(fn => fn());
+}
+
+export function updateBook(id: string, patch: Partial<Pick<BookMeta,"title"|"author">>) {
+  const all = getBooks();
+  const i = all.findIndex(b => b.id === id);
+  if (i === -1) return;
+  all[i] = { ...all[i], ...patch };
+  localStorage.setItem(KEY, JSON.stringify(all));
+  listeners.forEach(fn => fn());
+}
+2 · Header → right‑click “Book” menu with live list
+tsx
+Copy
+Edit
+// client/src/components/header.tsx  (extract only the Book button area)
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import {
+  ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem,
+} from "@/components/ui/context-menu";
+import { getBooks, onBooksChange, BookMeta } from "@/lib/bookStore";
+/* …existing imports (Link, Button…) … */
+
+export default function Header() {
+  const router = useRouter();
+  const [books, setBooks] = useState<BookMeta[]>([]);
+
+  useEffect(() => {
+    setBooks(getBooks());
+    return onBooksChange(() => setBooks(getBooks()));
+  }, []);
+
+  return (
+    /* …logo + Classes button… */
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <Button asChild size="sm" variant="secondary">
+          <Link href="/book">📕 Book</Link>
+        </Button>
+      </ContextMenuTrigger>
+
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => router.push("/books/new")}>
+          ➕ Add Book
+        </ContextMenuItem>
+
+        {books.length > 0 && (
+          <>
+            <div className="my-1 h-px bg-slate-200 dark:bg-slate-700" />
+            {books.map(b => (
+              <ContextMenuItem
+                key={b.id}
+                onSelect={() => router.push(`/books/${b.id}`)}
+              >
+                {b.title}
+              </ContextMenuItem>
+            ))}
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+    /* …Grades button + rest of header… */
+  );
+}
+3 · “Add Book” page /pages/books/new.tsx
+tsx
+Copy
+Edit
+import { useRef, useState } from "react";
+import { useRouter } from "next/router";
+import { BookMeta, saveBook } from "@/lib/bookStore";
+import { v4 as uuid } from "uuid";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+export default function NewBook() {
+  const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [pdfUrl, setPdfUrl]   = useState<string | null>(null);
+  const [title,  setTitle]    = useState("");
+  const [author, setAuthor]   = useState("");
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPdfUrl(URL.createObjectURL(f));
+    setTitle(f.name.replace(/\.pdf$/i, ""));
+  }
+
+  function save() {
+    if (!pdfUrl || !title) return;
+    const meta: BookMeta = { id: uuid(), title, author, url: pdfUrl };
+    saveBook(meta);
+    router.replace(`/books/${meta.id}`);
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-6 flex-grow">
+      <Card>
+        <CardContent className="p-6 flex flex-col gap-4">
+          <Button onClick={() => fileRef.current?.click()}>Choose PDF…</Button>
+          <input
+            ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile}
+          />
+
+          {pdfUrl && (
+            <>
+              <Input
+                value={author}
+                onChange={e => setAuthor(e.target.value)}
+                placeholder="Author name"
+              />
+              <Button onClick={save}>Save &amp; Open</Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+4 · Dynamic reader /pages/books/[id].tsx (inline‑editable)
+tsx
+Copy
+Edit
+import { useRouter } from "next/router";
+import { getBook, updateBook } from "@/lib/bookStore";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import TextbookToc from "@/components/textbook-toc";
+import { Card, CardContent } from "@/components/ui/card";
+
+export default function BookPage() {
+  const { query } = useRouter();
+  const book = getBook(query.id as string);
+  if (!book) return <p className="p-8">Book not found.</p>;
+
+  const [editing, setEditing] = useState<{field:"title"|"author"|null}>({field:null});
+
+  function commit(field:"title"|"author", val:string) {
+    updateBook(book.id, { [field]: val });
+    setEditing({field:null});
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-6 flex-grow">
+      <div className="max-w-6xl mx-auto">
+        {/* header */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            {editing.field==="title" ? (
+              <Input
+                autoFocus defaultValue={book.title}
+                onBlur={e=>commit("title",e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&commit("title",(e.target as HTMLInputElement).value)}
+                className="text-4xl font-bold mb-1"
+              />
+            ) : (
+              <h1
+                className="text-4xl font-bold cursor-pointer"
+                onDoubleClick={()=>setEditing({field:"title"})}
+              >
+                {book.title}
+              </h1>
+            )}
+
+            {editing.field==="author" ? (
+              <Input
+                autoFocus defaultValue={book.author}
+                onBlur={e=>commit("author",e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&commit("author",(e.target as HTMLInputElement).value)}
+                className="text-lg"
+              />
+            ) : (
+              <p
+                className="text-lg text-slate-600 dark:text-slate-400 cursor-pointer"
+                onDoubleClick={()=>setEditing({field:"author"})}
+              >
+                {book.author}
+              </p>
+            )}
+          </div>
+
+          <TextbookToc pdfUrl={book.url} />
+        </div>
+
+        {/* PDF */}
+        <Card>
+          <CardContent className="p-0">
+            <embed src={book.url} type="application/pdf" width="100%" height="1200px" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+5 · Legacy /book route (optional redirect)
+tsx
+Copy
+Edit
+// pages/book.tsx
+import { useEffect } from "react";
+import { useRouter } from "next/router";
+import { getBooks } from "@/lib/bookStore";
+
+export default function BookDefault() {
+  const r = useRouter();
+  useEffect(() => {
+    const b = getBooks();
+    r.replace(b.length ? `/books/${b[0].id}` : "/books/new");
+  }, []);
+  return null;
+}

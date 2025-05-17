@@ -1,0 +1,61 @@
+1 • Repository & Tooling
+
+ Area
+
+Observation
+
+Suggested Improvement
+
+Workspace
+
+Single‑package root, but apps/, client/, and server/ behave like independent packages
+
+Promote to a pnpm workspace / turborepo (root package.json ➜ workspaces:["apps/*","client","server","packages/*"]). Isolates deps, speeds CI caching, enables incremental builds
+
+TypeScript
+
+strict flags are off in tsconfig.json; a few implicit any escape
+
+Turn on "strict":true (or at least noImplicitAny, strictNullChecks) then fix surfaced errors.  Safer APIs & better IntelliSense
+
+Lint & Format
+
+No repo‑wide ESLint config; relies on IDE defaults
+
+Add eslint‑config‑turbo or eslint‑airbnb‑typescript, couple with Prettier via eslint-plugin-prettier for single‑pass formatting
+
+Husky / lint‑staged
+
+No pre‑commit checks
+
+Add Husky hook to run pnpm lint, pnpm test – keeps main green
+
+2 • Frontend (client/)
+
+Routing
+
+Uses Wouter which is lightweight but lacks data‑aware pre‑fetching.  If SEO isn’t a constraint consider staying; otherwise evaluate TanStack Router or React Router v6.22+ for nested routes & lazy loading.
+
+Two identical routes (/course and /course#:problemSet) – could consolidate with a param‐based route.
+
+Code‑Splitting & Suspense
+
+All pages are imported eagerly in App.tsx.   Wrap each in React.lazy + <Suspense fallback={<Spinner/>}>. Shaves ~30‑40 kB initial JS.
+
+Context Bloat
+
+ThemeProvider,SolutionsProvider,LectureLinksProvider,CourseNameProvider all wrap the whole tree.  Deep provider stacks hurt render perf & readability.  Consider provider composition pattern: create a <AppProviders> component or colocate providers only where needed.
+
+UI Components
+
+Excellent use of shadcn/ui + Radix‑UI – but some duplicated styles under client/src/components/ui/*.  Prefer re‑exporting shadcn primitives via a local @/components/ui/index.ts barrel so consumers don’t guess at paths.
+
+State / Data Fetching
+
+Uses TanStack Query already – great.  A few useQuery calls use string keys like ["grades"].  Switch to key factories (gradesKeys.list(courseId)) to reduce cache‑key drift.
+
+Accessibility & SEO
+
+Confirm every interactive component has an aria‑label (some .button-icon spans rely on title attr only).
+
+Add lang="en" to root index.html.

@@ -1,0 +1,82 @@
+Below is the exact slice of the back‑end that handles persistence:
+
+js
+Copy
+Edit
+// server/index.js  ── persistence essentials only
+import fs from "fs";
+import path from "path";
+import express from "express";
+import session from "express-session";
+import multer from "multer";
+import Database from "better-sqlite3";
+import { nanoid } from "nanoid";
+
+const __dirname  = path.resolve();
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
+
+// ── 1.  Tiny SQLite store ──────────────────────────────
+const db = new Database(path.join(__dirname, "docs.db"));
+db.exec(`CREATE TABLE IF NOT EXISTS documents(
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL,
+  stored_name   TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  uploaded_at   INTEGER NOT NULL
+)`);
+
+// ── 2.  Express + session cookie  ──────────────────────
+const app = express();
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "development-secret",
+    resave: false,
+    saveUninitialized: true,
+    cookie: { maxAge: 1000 * 60 * 60 * 24 * 30 } // 30 days
+  })
+);
+
+// Each browser gets a stable anonymous ID for look‑ups
+function getUserId(req) {
+  if (!req.session.userId) req.session.userId = nanoid();
+  return req.session.userId;
+}
+
+// ── 3.  Disk storage for PDFs (multer) ─────────────────
+const storage = multer.diskStorage({
+  destination: (_, __, cb) => cb(null, UPLOAD_DIR),
+  filename:    (_, file, cb) => cb(null, nanoid() + path.extname(file.originalname))
+});
+const upload = multer({ storage });
+
+// ── 4.  ROUTE — upload & persist  ──────────────────────
+app.post("/api/upload", upload.single("file"), (req, res) => {
+  const userId = getUserId(req);
+  const id     = nanoid();                    // public doc ID
+  db.prepare(`
+    INSERT INTO documents(id, user_id, stored_name, original_name, uploaded_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, userId, req.file.filename, req.file.originalname, Date.now());
+
+  res.json({ success: true, id });
+});
+
+// ── 5.  ROUTE — list user’s library (for future sessions) ──
+app.get("/api/docs", (req, res) => {
+  const rows = db.prepare(
+    `SELECT id, original_name, uploaded_at
+       FROM documents
+      WHERE user_id = ?
+      ORDER BY uploaded_at DESC`
+  ).all(getUserId(req));
+
+  res.json(rows);          // client restores sidebar from this
+});
+
+// ── 6.  ROUTE — stream a specific PDF  ──────────────────
+app.get("/api/docs/:id", (req, res) => {
+  const row = db.prepare(`SELECT stored_name FROM documents WHERE id = ?`).get(req.params.id);
+  if (!row) return res.sendStatus(404);
+  res.sendFile(path.join(UPLOAD_DIR, row.stored_name));
+});

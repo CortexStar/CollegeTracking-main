@@ -1,0 +1,48 @@
+run = "pnpm turbo run dev --parallel"
+onBoot = "pnpm --filter api run db:migrate"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["postgresql"]
+
+[env]
+# 🔒  Flip Y/N to enable or disable login guards everywhere
+AUTH = "N"               # <— master switch for the server
+VITE_AUTH = "N"          # <— same switch for the client
+
+# Google OAuth keys
+VITE_GOOGLE_CLIENT_ID = "xxxxxxxxxxxx.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID       = "xxxxxxxxxxxx.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET   = "xxxxxxxxxxxxxxxxxxxxxxxx"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["npm", "run", "start"]
+build = ["npm", "run", "build"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000

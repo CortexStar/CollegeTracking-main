@@ -1,0 +1,76 @@
+import { Semester } from "@/utils/parseCourseData";
+
+/**
+ * Section groups semesters under a label (e.g., Freshman Year, Summer 2024).
+ */
+export interface Section {
+  /** Display label for this group */
+  title: string;
+  /** Semesters belonging to this group, in chronological order */
+  semesters: Semester[];
+}
+
+const SEASON_ORDER: Record<string, number> = { spring: 1, summer: 2, fall: 3 };
+const ACADEMIC_LABELS = ["Freshman Year", "Sophomore Year", "Junior Year", "Senior Year"];
+
+/**
+ * Organize a flat list of semesters into chronological sections:
+ * - Non-summer semesters are grouped two per academic year: Freshman, Sophomore, etc.
+ * - Summer semesters each get their own "Summer {year}" section,
+ *   and appear at the correct point in the timeline.
+ */
+export function organizeSemesters(semesters: Semester[]): Section[] {
+  // Parse name to season/year, keep original semester
+  const parsed = semesters
+    .map((sem) => {
+      const match = sem.name.match(/(Spring|Summer|Fall)\s+(\d{4})/i);
+      if (!match) {
+        // Unknown format: push to end as misc
+        return { sem, season: "", year: 0 };
+      }
+      return {
+        sem,
+        season: match[1].toLowerCase(),
+        year: parseInt(match[2], 10),
+      };
+    })
+    .sort((a, b) => {
+      // chronological: by year, then season order
+      const yearDiff = a.year - b.year;
+      if (yearDiff !== 0) return yearDiff;
+      return (SEASON_ORDER[a.season] || 0) - (SEASON_ORDER[b.season] || 0);
+    });
+
+  const sections: Section[] = [];
+  let nonSummerCount = 0;
+
+  for (const { sem, season, year } of parsed) {
+    if (season === "summer") {
+      // Each summer gets its own section
+      const label = `Summer ${year}`;
+      sections.push({ title: label, semesters: [sem] });
+    } else if (season === "spring" || season === "fall") {
+      // Determine academic group index
+      const level = Math.floor(nonSummerCount / 2);
+      const label = ACADEMIC_LABELS[level] || `Year ${level + 1}`;
+      const last = sections[sections.length - 1];
+      if (last && last.title === label) {
+        last.semesters.push(sem);
+      } else {
+        sections.push({ title: label, semesters: [sem] });
+      }
+      nonSummerCount++;
+    } else {
+      // Fallback for unrecognized names: group under "Miscellaneous"
+      const fallback = "Miscellaneous";
+      const last = sections[sections.length - 1];
+      if (last && last.title === fallback) {
+        last.semesters.push(sem);
+      } else {
+        sections.push({ title: fallback, semesters: [sem] });
+      }
+    }
+  }
+
+  return sections;
+}

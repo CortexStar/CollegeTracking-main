@@ -1,0 +1,169 @@
+import React, { useMemo, useState } from "react";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ReferenceArea,
+  CartesianGrid,
+} from "recharts";
+import { motion } from "framer-motion";
+
+/**
+ * GPA DASHBOARD – v9 (forecast + observed cumulative together)
+ */
+
+export interface Semester {
+  id: string;
+  term: string;
+  yearLevel: "Freshman" | "Sophomore" | "Junior" | "Senior";
+  gpa: number | null;
+  credits?: number;
+  gradePoints?: number;
+}
+
+interface Props {
+  semesters: Semester[];
+}
+
+const GREEN = "#10b981";
+const PURPLE = "#8b5cf6";
+const round2 = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
+
+const ALPHA = 0.6,
+  BETA = 0.05,
+  PHI = 0.7;
+
+const GpaDashboard: React.FC<Props> = ({ semesters }) => {
+  const [mode, setMode] = useState<"history" | "overall" | "forecast">("history");
+
+  /* cumulative */
+  const cumulative = useMemo(() => {
+    let cr = 0,
+      gp = 0;
+    return semesters.map((s) => {
+      if (s.gpa != null) {
+        if (s.credits != null && s.gradePoints != null) {
+          cr += s.credits;
+          gp += s.gradePoints;
+        } else {
+          cr += 1;
+          gp += s.gpa;
+        }
+      }
+      return { ...s, cumulative: round2(cr ? gp / cr : null) } as any;
+    });
+  }, [semesters]);
+
+  /* forecast */
+  const forecast = useMemo(() => {
+    const lastIdx = cumulative.reduce((idx, d, i) => (d.cumulative != null ? i : idx), -1);
+    if (lastIdx === -1) return cumulative;
+
+    let L = cumulative[0].cumulative as number,
+      T = 0;
+    for (let i = 1; i <= lastIdx; i++) {
+      const y = cumulative[i].cumulative as number;
+      if (y == null) break;
+      const prevL = L;
+      L = ALPHA * y + (1 - ALPHA) * (prevL + PHI * T);
+      T = BETA * (L - prevL) + (1 - BETA) * PHI * T;
+    }
+
+    const series: any[] = cumulative.map((d, i) => ({ ...d, proj: i >= lastIdx ? d.cumulative : null }));
+    series[lastIdx].proj = cumulative[lastIdx].cumulative;
+
+    const levels = ["Freshman", "Sophomore", "Junior", "Senior"] as const;
+    let last = semesters[semesters.length - 1];
+    let [season, yStr] = last.term.split(" ") as ["Fall" | "Spring", string];
+    let year = parseInt(yStr, 10);
+    let idx = levels.indexOf(last.yearLevel as any);
+    if (season === "Fall") {
+      season = "Spring";
+      year += 1;
+    } else {
+      season = "Fall";
+    }
+    if (season === "Fall" && idx < 3) idx++;
+
+    for (let h = 1; h <= 6; h++) {
+      const damp = (1 - Math.pow(PHI, h)) / (1 - PHI);
+      const yHat = round2(Math.min(4, Math.max(0, L + PHI * damp * T)));
+      series.push({ id: `f-${season}-${year}`, term: `${season} ${year}`, yearLevel: levels[idx], proj: yHat });
+      if (season === "Fall") season = "Spring"; else { season = "Fall"; year += 1; if (idx < 3) idx++; }
+    }
+    return series;
+  }, [cumulative, semesters]);
+
+  const view = useMemo(() => {
+    switch (mode) {
+      case "history":
+        return { data: semesters.map((s) => ({ ...s, gpa: round2(s.gpa) })), key: "gpa", color: GREEN, label: "GPA", extra: null };
+      case "overall":
+        return { data: cumulative, key: "cumulative", color: GREEN, label: "Cumulative GPA", extra: null };
+      case "forecast":
+        return { data: forecast, key: "proj", color: PURPLE, label: "Projected GPA", extra: "cumulative" };
+    }
+  }, [mode, semesters, cumulative, forecast]);
+
+  return (
+    <Card className="w-full backdrop-blur-md bg-white/60 dark:bg-slate-900/60 border border-white/30 dark:border-slate-700/40 shadow-xl rounded-2xl">
+      <CardHeader className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 p-6">
+        <div>
+          <CardTitle className="text-3xl font-semibold tracking-tight">GPA Overview</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            {mode === "history" && "Semester GPA"}
+            {mode === "overall" && "Cumulative GPA"}
+            {mode === "forecast" && "Projected cumulative GPA"}
+          </p>
+        </div>
+        <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as any)} className="border border-slate-300 dark:border-slate-700 rounded-full overflow-hidden backdrop-blur-sm">
+          <ToggleGroupItem value="history" className="px-4 py-1">History</ToggleGroupItem>
+          <ToggleGroupItem value="overall" className="px-4 py-1">Overall</ToggleGroupItem>
+          <ToggleGroupItem value="forecast" className="px-4 py-1">Forecast</ToggleGroupItem>
+        </ToggleGroup>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        <motion.div key={mode} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="w-full h-[500px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={view.data} margin={{ top: 20, right: 36, left: 12, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.06} />
+              <XAxis dataKey="term" interval="preserveStartEnd" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+              <YAxis domain={[0, 4]} tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+              <Tooltip formatter={(v: any) => (v != null ? (v as number).toFixed(2) : "–")} labelFormatter={(t) => `Term: ${t}`} contentStyle={{ backdropFilter: "blur(6px)", background: "rgba(255,255,255,0.85)", borderRadius: 12, border: "none" }} />
+              <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: 16 }} />
+
+              {(["Freshman", "Sophomore", "Junior", "Senior"] as const).map((lvl) => {
+                const pos = view.data.map((d, i) => (d.yearLevel === lvl ? i : -1)).filter((i) => i !== -1);
+                return pos.length ? <ReferenceArea key={lvl} x1={Math.min(...pos) - 0.5} x2={Math.max(...pos) + 0.5} strokeOpacity={0} fillOpacity={0.04} /> : null;
+              })}
+
+              {/* observed cumulative line in forecast mode */}
+              {view.extra && (
+                <Line
+                  type="monotone"
+                  dataKey={view.extra}
+                  name="Cumulative GPA"
+                  stroke={GREEN}
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  dot={{ r: 5, fill: GREEN, stroke: "white", strokeWidth: 2 }}
+                  connectNulls
+                />
+              )}
+
+              {/* primary line */}
+              <Line
+                type="monotone"
+                dataKey={view.key}

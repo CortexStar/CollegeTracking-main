@@ -1,0 +1,119 @@
+👋 Replit team — Let’s make the Forecast line actually project into the un‑seen future
+Right now Forecast mode looks identical to History because:
+
+We only chart semesters that already exist – there are no “blank” Junior/Senior rows for the line to travel into.
+
+The forecast logic anchors every completed semester to the same value – we never diverge from the history path.
+
+Below is a drop‑in plan + code so the component can automatically pad the timeline to Senior Spring and plot a branching forecast from the most‑recent GPA onward.
+
+1 · Generate future semesters
+Add a tiny util (utils/generateFutureSemesters.ts):
+
+ts
+Copy
+Edit
+import { Semester } from "@/components/GpaDashboard";
+
+const ORDER = ["Fall", "Spring"] as const;
+const LEVELS = ["Freshman", "Sophomore", "Junior", "Senior"] as const;
+
+export function generateFutureSemesters(existing: Semester[]): Semester[] {
+  if (!existing.length) return [];
+
+  // sort existing just in case
+  const semesters = [...existing].sort(
+    (a, b) => new Date(a.term).getTime() - new Date(b.term).getTime()
+  );
+
+  const last = semesters[semesters.length - 1];
+  const [lastSeason, lastYear] = last.term.split(" ") as [typeof ORDER[number], string];
+  let seasonIdx = ORDER.indexOf(lastSeason);
+  let year = Number(lastYear);
+  let levelIdx = LEVELS.indexOf(last.yearLevel);
+
+  while (levelIdx < LEVELS.length) {
+    // advance to next term
+    seasonIdx = (seasonIdx + 1) % 2;
+    if (seasonIdx === 0) year += 1; // wrapped from Spring -> Fall
+
+    if (seasonIdx === 0 && levelIdx < LEVELS.length - 1) levelIdx++; // promote after Spring
+
+    const next: Semester = {
+      id: `${ORDER[seasonIdx]}${year}`,
+      term: `${ORDER[seasonIdx]} ${year}`,
+      yearLevel: LEVELS[levelIdx],
+      gpa: null,
+    };
+
+    // stop once we've added Senior Spring
+    semesters.push(next);
+    if (next.yearLevel === "Senior" && ORDER[seasonIdx] === "Spring") break;
+  }
+
+  return semesters;
+}
+2 · Patch GradesPage
+Right before you pass data to the chart, splice in the future semesters:
+
+tsx
+Copy
+Edit
+import { generateFutureSemesters } from "@/utils/generateFutureSemesters";
+
+// …
+
+<GpaDashboard
+  semesters={formatSemestersForChart(
+    generateFutureSemesters(semesters),  // ◀️ new
+    organizedSections
+  )}
+/>
+(If formatSemestersForChart already sorts/labels, it will happily accept the extra rows.)
+
+3 · Update forecast logic (inside GpaDashboard)
+Replace the simple “±0.25 band” with something that branches out from the last real GPA only:
+
+ts
+Copy
+Edit
+const lastReal = completed[completed.length - 1]?.gpa ?? 0;
+
+const withForecast = useMemo(() => {
+  return fullTimeline.map((s, idx) => {
+    if (s.gpa !== null) {
+      // completed semester – keep history line
+      return { ...s, avg: null, high: null, low: null };
+    }
+    // first future point – branch from lastReal
+    if (idx === completed.length) {
+      return {
+        ...s,
+        avg: lastReal,
+        high: Math.min(4, lastReal + 0.3),
+        low: Math.max(0, lastReal - 0.3),
+      };
+    }
+    // further future – flatten toward avg
+    return {
+      ...s,
+      avg: lastReal,
+      high: Math.min(4, lastReal + 0.3),
+      low: Math.max(0, lastReal - 0.3),
+    };
+  });
+}, [fullTimeline, completed, lastReal]);
+Key point: we don’t duplicate gpa values on completed semesters anymore, so the forecast line visibly splits from the historical curve.
+
+Add connectNulls to each forecast <Line> so the break is smooth:
+
+tsx
+Copy
+Edit
+<Line dataKey="avg" connectNulls … />
+4 · Minor polish
+Tweak	Why
+strokeLinecap="round" on all lines	Softer ends (iOS feel)
+fillOpacity for the area band down to 0.05	Keeps focus on the center line
+Raise chart h-[500px] on ≥ md break‑point	Prevent label crowding after we add 8 total semesters
+

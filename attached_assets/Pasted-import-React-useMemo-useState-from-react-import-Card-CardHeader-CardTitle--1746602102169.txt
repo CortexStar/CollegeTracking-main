@@ -1,0 +1,219 @@
+import React, { useMemo, useState } from "react";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ReferenceArea,
+  CartesianGrid,
+} from "recharts";
+import { motion } from "framer-motion";
+
+/**
+ * GPA DASHBOARD – v5 (Holt‑damped forecast, green)
+ * ────────────────────────────────────────────────────────────────────────────
+ * Views:
+ *   • History    – term GPA
+ *   • Overall    – cumulative GPA
+ *   • Forecast   – Holt’s damped trend on cumulative GPA
+ *
+ *  ▸ All GPAs rounded to 2 decimals.
+ *  ▸ Solid green line for observed data; dotted green for forecast starting *after* last term.
+ */
+
+export interface Semester {
+  id: string;
+  term: string;
+  yearLevel: "Freshman" | "Sophomore" | "Junior" | "Senior";
+  gpa: number | null;
+  credits?: number;
+  gradePoints?: number;
+}
+
+interface Props {
+  semesters: Semester[];
+}
+
+const GREEN = "#10b981"; // emerald‑500
+const round2 = (v: number | null) => (v == null ? null : Math.round(v * 100) / 100);
+
+// Holt parameters – tweak if desired
+const ALPHA = 0.5;   // level smoothing
+const BETA = 0.3;    // trend smoothing
+const PHI = 0.9;     // damping (0<φ≤1)
+
+/** ───────────────────────────────────────────────────────────────────────── */
+const GpaDashboard: React.FC<Props> = ({ semesters }) => {
+  const [mode, setMode] = useState<"history" | "overall" | "forecast">("history");
+
+  /** Build cumulative GPA (weighted) */
+  const cumulative = useMemo(() => {
+    let cred = 0,
+      pts = 0;
+    return semesters.map((s) => {
+      if (s.gpa != null) {
+        if (s.credits != null && s.gradePoints != null) {
+          cred += s.credits;
+          pts += s.gradePoints;
+        } else {
+          cred += 1;
+          pts += s.gpa;
+        }
+      }
+      return { ...s, cumulative: round2(cred ? pts / cred : null) } as any;
+    });
+  }, [semesters]);
+
+  /** Holt‑Winters damped trend forecast on cumulative GPA */
+  const forecast = useMemo(() => {
+    if (!cumulative.length) return [] as any[];
+    const observed = cumulative.filter((d) => d.cumulative != null);
+    const n = observed.length;
+    if (n === 0) return cumulative;
+
+    let L = observed[0].cumulative as number;
+    let T = 0;
+    for (let i = 1; i < n; i++) {
+      const y = observed[i].cumulative as number;
+      const prevL = L;
+      L = ALPHA * y + (1 - ALPHA) * (prevL + PHI * T);
+      T = BETA * (L - prevL) + (1 - BETA) * PHI * T;
+    }
+
+    // copy dataset & seed proj up to last observed
+    const series: any[] = cumulative.map((d) => ({ ...d, proj: d.cumulative }));
+
+    // generate future terms until Senior Spring (max 6)
+    const levelOrder = ["Freshman", "Sophomore", "Junior", "Senior"] as const;
+    let last = semesters[semesters.length - 1];
+    let [season, yStr] = last.term.split(" ") as ["Fall" | "Spring", string];
+    let year = parseInt(yStr, 10);
+    let levelIdx = levelOrder.indexOf(last.yearLevel as any);
+    if (season === "Fall") {
+      season = "Spring";
+      year += 1;
+    } else {
+      season = "Fall";
+    }
+    if (season === "Fall" && levelIdx < 3) levelIdx++;
+
+    const horizon = 6;
+    for (let h = 1; h <= horizon; h++) {
+      // damped forecast formula
+      const phi_h = (1 - Math.pow(PHI, h)) / (1 - PHI);
+      const yHat = round2(Math.min(4, Math.max(0, L + PHI * phi_h * T)));
+
+      series.push({
+        id: `fcast-${season}-${year}`,
+        term: `${season} ${year}`,
+        yearLevel: levelOrder[levelIdx],
+        gpa: null,
+        cumulative: null,
+        proj: yHat,
+      });
+
+      // advance term chronology
+      if (season === "Fall") {
+        season = "Spring";
+      } else {
+        season = "Fall";
+        year += 1;
+        if (levelIdx < 3) levelIdx++;
+      }
+    }
+    return series;
+  }, [cumulative, semesters]);
+
+  /** Select view */
+  const { data, key, label, dashed } = useMemo(() => {
+    switch (mode) {
+      case "history":
+        return { data: semesters.map((s) => ({ ...s, gpa: round2(s.gpa) })), key: "gpa", label: "GPA", dashed: false };
+      case "overall":
+        return { data: cumulative, key: "cumulative", label: "Cumulative GPA", dashed: false };
+      case "forecast":
+        return { data: forecast, key: "proj", label: "Projected GPA", dashed: true };
+    }
+  }, [mode, semesters, cumulative, forecast]);
+
+  /** -------------------------------------------------------------------- */
+  return (
+    <Card className="w-full backdrop-blur-md bg-white/60 dark:bg-slate-900/60 border border-white/30 dark:border-slate-700/40 shadow-xl rounded-2xl">
+      <CardHeader className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 p-6">
+        <div>
+          <CardTitle className="text-3xl font-semibold tracking-tight">GPA Overview</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            {mode === "history" && "Semester GPA"}
+            {mode === "overall" && "Cumulative GPA"}
+            {mode === "forecast" && "Projected cumulative GPA (Holt‑damped)"}
+          </p>
+        </div>
+        <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as any)} className="border border-slate-300 dark:border-slate-700 rounded-full overflow-hidden backdrop-blur-sm">
+          <ToggleGroupItem value="history" className="px-4 py-1">History</ToggleGroupItem>
+          <ToggleGroupItem value="overall" className="px-4 py-1">Overall</ToggleGroupItem>
+          <ToggleGroupItem value="forecast" className="px-4 py-1">Forecast</ToggleGroupItem>
+        </ToggleGroup>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        <motion.div key={mode} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="w-full h-[500px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 20, right: 36, left: 12, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
+              <XAxis dataKey="term" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 4]} tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+              <Tooltip formatter={(v: any) => (v != null ? (v as number).toFixed(2) : "–")} labelFormatter={(t) => `Term: ${t}`} contentStyle={{ backdropFilter: "blur(6px)", background: "rgba(255,255,255,0.7)", borderRadius: 12, border: "none" }} />
+              <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: 16 }} />
+
+              {/* Year shading */}
+              {(["Freshman", "Sophomore", "Junior", "Senior"] as const).map((lvl) => {
+                const idx = data.map((d, i) => (d.yearLevel === lvl ? i : -1)).filter((i) => i !== -1);
+                if (!idx.length) return null;
+                return <ReferenceArea key={lvl} x1={Math.min(...idx) - 0.5} x2={Math.max(...idx) + 0.5} strokeOpacity={0} fillOpacity={0.04} />;
+              })}
+
+              {/* Solid line for observed part (in forecast mode show gap) */}
+              {mode === "forecast" && (
+                <Line
+                  type="monotone"
+                  dataKey="cumulative"
+                  stroke={GREEN}
+                  strokeWidth={3}
+                  dot={{ r: 5, fill: GREEN, stroke: "white", strokeWidth: 2 }}
+                  activeDot={{ r: 6 }}
+                  isAnimationActive={false}
+                />
+              )}
+
+              {/* Main line */}
+              <Line
+                type="monotone"
+                dataKey={key}
+                name={label}
+                stroke={GREEN}
+                strokeWidth={3}
+                strokeDasharray={dashed ? "6 6" : undefined}
+                strokeLinecap="round"
+                dot={{ r: dashed ? 4 : 6, fill: GREEN, stroke: "white", strokeWidth: 2 }}
+                activeDot={{ r: dashed ? 5 : 7 }}
+                connectNulls
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </motion.div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default GpaDashboard;

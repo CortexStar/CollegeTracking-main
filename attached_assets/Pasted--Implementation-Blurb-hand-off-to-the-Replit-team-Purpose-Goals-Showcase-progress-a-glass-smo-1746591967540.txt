@@ -1,0 +1,72 @@
+ Implementation Blurb — hand‑off to the Replit team
+Purpose & Goals
+
+Showcase progress — a glass‑smooth GPA timeline that instantly communicates historical performance and projected outcomes.
+
+Encourage exploration — mode toggle (History ↔ Forecast) invites users to “play” with their data.
+
+Set a design bar — Apple / OpenAI‑level finish: calm surfaces, gentle motion, strict palette discipline.
+
+1 · Core Files
+Path	Contents
+src/components/GpaDashboard.tsx	Full React + TS component (in canvas)
+tailwind.config.js	Add backdropBlur and ensure darkMode:"class"
+vite.config.ts (or similar)	No changes needed; ensure alias @/ resolves
+
+2 · Dependencies
+bash
+Copy
+Edit
+pnpm add recharts framer-motion @radix-ui/react-icons # if not already
+(shadcn/ui & Tailwind are assumed present.)
+
+3 · Data Contract
+ts
+Copy
+Edit
+export interface Semester {
+  id: string;           // e.g. "f23"
+  term: string;         // "Fall 2023"
+  yearLevel: "Freshman" | "Sophomore" | "Junior" | "Senior";
+  gpa: number | null;   // null for future semesters
+}
+🔑 Only this shape is required. Everything else is derived internally.
+
+4 · Drop‑in Usage
+tsx
+Copy
+Edit
+import GpaDashboard, { Semester } from "@/components/GpaDashboard";
+
+const semesters: Semester[] = [/* … */];
+
+export default function DashboardPage() {
+  return <GpaDashboard semesters={semesters} />;
+}
+5 · Styling & Motion Notes
+Aspect	Choice	Why
+Glass card	backdrop‑blur-md bg-white/60	Subtle depth, modern feel
+Gradient stroke	Indigo → Sky	Minimal but vibrant highlight
+Framer Motion	Fade+lift on mode switch	Adds liveliness without distraction
+Grid & bands	10 % opacity grid, 4 % year shading	Keeps reference cues extremely light
+
+Dark‑mode colors handled via dark: classes; no extra config.
+
+6 · Extensibility Pointers
+Forecast logic → replace the simple ±0.25 calc inside withForecast.
+
+Live data → fetch semesters via RPC / tRPC, memoize, pass down.
+
+Code‑split → React.lazy + suspense boundary for large dashboards.
+
+Accessibility → confirm 4.5:1 contrast for tooltip text; add aria‑label to toggle buttons.
+
+7 · Perf / QA Checklist
+ Install deps & run pnpm build — no TS errors.
+
+ Resize viewport ≥ 320 px — chart remains readable.
+
+ Toggle dark mode — gradient & surfaces adapt.
+
+ Keyboard‑tab through toggle — focus styles visible.
+

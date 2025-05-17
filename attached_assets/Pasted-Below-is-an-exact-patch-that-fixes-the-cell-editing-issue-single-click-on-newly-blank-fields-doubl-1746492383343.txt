@@ -1,0 +1,120 @@
+Below is an exact patch that fixes the cell‑editing issue (single‑click on
+newly‑blank fields, double‑click on filled fields) and removes the
+fragile “triple‑click” logic that’s blocking you now.
+
+Copy each block into client/src/pages/grades.tsx exactly where noted, save,
+then refresh the preview. No other files change.
+
+1 Add a tiny reusable <Editable> component
+Paste this above return (—right after saveEditedCourse is a good spot.
+
+tsx
+Copy
+Edit
+// ─── small helper so we don't repeat click logic 4× ──────────────────────
+type EditableProps = {
+  children: string | number;
+  onEdit: () => void;
+  align?: "center" | "left";
+};
+
+const Editable = ({ children, onEdit, align = "left" }: EditableProps) => {
+  const isEmpty =
+    children === "" || (typeof children === "number" && children === 0);
+
+  return (
+    <span
+      className={`cursor-text ${align === "center" ? "mx-auto" : ""}`}
+      onClick={(e) => {
+        if (isEmpty) {
+          onEdit(); // single‑click when empty
+        }
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onEdit(); // always edit on double‑click
+      }}
+      title={isEmpty ? "Click to edit" : "Double‑click to edit"}
+    >
+      {isEmpty ? (
+        <span className="text-gray-500">Click to edit</span>
+      ) : (
+        children
+      )}
+    </span>
+  );
+};
+2 Replace each of the four cell <span> blocks
+2‑a Course ID cell
+Find the long block that starts with:
+
+tsx
+Copy
+Edit
+<span
+  className="cursor-text"
+  onClick={(e) => {
+    const isEmpty = course.id === "";
+Delete the whole <span …>…</span> and replace just that span with:
+
+tsx
+Copy
+Edit
+<Editable
+  onEdit={() => startEditingCourse(semester.id, i, "id", course.id)}
+>
+  {course.id}
+</Editable>
+2‑b Course Title
+Same pattern—replace the span with:
+
+tsx
+Copy
+Edit
+<Editable
+  onEdit={() => startEditingCourse(semester.id, i, "title", course.title)}
+>
+  {course.title}
+</Editable>
+2‑c Grade
+Replace the span inside the grade cell with:
+
+tsx
+Copy
+Edit
+<Editable
+  onEdit={() => startEditingCourse(semester.id, i, "grade", course.grade)}
+  align="center"
+>
+  {course.grade}
+</Editable>
+2‑d Credits
+Replace the span inside the credits cell with:
+
+tsx
+Copy
+Edit
+<Editable
+  onEdit={() =>
+    startEditingCourse(
+      semester.id,
+      i,
+      "credits",
+      course.credits.toString()
+    )
+  }
+  align="center"
+>
+  {course.credits.toFixed(1)}
+</Editable>
+(There are exactly four spans to swap—ID, Title, Grade, Credits.)
+
+3 Remove the old click logic (optional but recommended)
+Search for and delete the helper variables we inserted last time:
+
+tsx
+Copy
+Edit
+const isEmpty = …
+and the associated e.detail === 3 blocks—they’re no longer used.
+

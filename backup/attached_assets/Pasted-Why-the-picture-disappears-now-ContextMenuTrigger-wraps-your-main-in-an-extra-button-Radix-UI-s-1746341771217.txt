@@ -1,0 +1,112 @@
+Why the picture disappears now
+ContextMenuTrigger wraps your <main> in an extra <button>
+
+Radix UI’s ContextMenuTrigger renders a real element of its own (a <button> if you don’t tell it otherwise).
+
+Your backgroundImage style sits on the inner <main>, but the element that actually grows inside the flex column is the outer <button>.
+Result: the thing that fills the space has no background, and the thing that has the background has no height ⇒ the image is invisible.
+
+The trigger isn’t a flex‑item that can grow
+className="flex-grow" is on the inner <main>, not on the element that sits inside the
+flex flex-col page. The browser therefore sees a zero‑height block between the header and footer.
+
+Two‑line fix
+Tell Radix to reuse your own element instead of inserting a <button> and move
+flex-1/flex-grow onto that element:
+
+tsx
+Copy
+Edit
+<ContextMenu>
+  {/* ⚠️  asChild makes Radix “adopt” the child element instead of adding a <button> */}
+  <ContextMenuTrigger asChild>
+    <main       /* the page’s middle column */
+      className="flex-1 flex items-center justify-center overflow-hidden"
+      style={backgroundImage
+        ? {
+            backgroundImage: `url(${backgroundImage})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+          }
+        : {}}
+    >
+      {/* …drag‑and‑drop box exactly as before… */}
+    </main>
+  </ContextMenuTrigger>
+
+  <ContextMenuContent>
+    {/* …menu items… */}
+  </ContextMenuContent>
+</ContextMenu>
+What changed?
+Before	After
+<ContextMenuTrigger className="flex-grow"><br/>Radix injects its own <button> around the child	<ContextMenuTrigger **asChild**><br/>Radix now uses the <main> itself as the trigger element
+flex-grow sits on <main>, but the growing element is the outer <button>	flex-1/flex-grow sit on the exact element that lives inside the flex flex-col layout
+<main> has the background image but zero height ⇒ invisible	<main> fills all leftover height ⇒ background shows edge‑to‑edge
+
+Complete minimal layout (for reference)
+tsx
+Copy
+Edit
+export default function Landing() {
+  /* state, handlers, toast – unchanged */
+
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
+      <Header />
+
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <main
+            className="flex-1 flex items-center justify-center overflow-hidden"
+            style={backgroundImage
+              ? {
+                  backgroundImage: `url(${backgroundImage})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  backgroundRepeat: "no-repeat",
+                }
+              : {}}
+          >
+            {!backgroundImage && (
+              <div
+                ref={dropZoneRef}
+                /* …drag‑and‑drop props… */
+              >
+                {/* …icon & text… */}
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageUpload}
+            />
+          </main>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => fileInputRef.current?.click()}>
+            Upload Image
+          </ContextMenuItem>
+          {backgroundImage && (
+            <ContextMenuItem
+              onClick={() => {
+                setBackgroundImage(null)
+                localStorage.removeItem("backgroundImage")
+                toast({ title: "Success", description: "Image removed" })
+              }}
+            >
+              Remove Image
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <Footer />
+    </div>
+  )
+}
+Now the element that holds the picture is also the element that takes up the space, so the image appears instantly and the old 1‑pixel gaps are gone.

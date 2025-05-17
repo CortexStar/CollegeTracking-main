@@ -1,0 +1,86 @@
+🚦 Quick QA Findings & Fix List for Replit
+Below is a punch‑list of what broke (why Forecast mode shows only the legend) and a few polish tweaks to keep the Apple/OpenAI vibe.
+
+⚠️ Issue	Root cause	1‑line diagnostic	Recommended fix
+No forecast curves rendered	avg, high, low are null on the first two rows. Recharts skips a series until it sees ≥ 2 contiguous numeric points	console.table(chartData) in Forecast shows nulls for Fall 2023 / Spring 2024	① In withForecast, set avg/high/low on completed semesters equal to their gpa → anchors the line.
+ts\nif (s.gpa !== null) return { …s, avg: s.gpa, high: s.gpa, low: s.gpa }
+② (or) add connectNulls on each <Line … />
+Legend icons render but stroke invisible in dark mode	Slate‑500 (#64748b) disappears against white grid	Dark‑mode fine, light‑mode faint	Nudge to slate‑600 or raise strokeWidth to 2
+Year shading labels cropped	dy:4 at small heights + overflow:hidden in card	Resize to ≤ 360 px height	Add dominantBaseline=\"text-before-edge\" or bump chart to h-[460px]
+Dead zone on first render	ResponsiveContainer width 0 inside hidden tab	If Dashboard is inside a collapsed accordion	Fire a resize observer / call apiRef.current?.updateDimensions() when the accordion opens
+
+Minimal code diff (drop‑in)
+diff
+Copy
+Edit
+-              {mode === "history" ? (
++              {mode === "history" ? (
+                 <Line
+                   type="monotone"
+                   dataKey="gpa"
+                   ...
+-                />
++                />
+               ) : (
+                 <>
+                   <Line
+                     type="monotone"
+                     dataKey="avg"
+                     ...
++                    connectNulls     // 👈 new
+                   />
+                   <Line
+                     type="monotone"
+                     dataKey="high"
+                     ...
++                    connectNulls
+                   />
+                   <Line
+                     type="monotone"
+                     dataKey="low"
+                     ...
++                    connectNulls
+                   />
+                 </>
+               )}
+diff
+Copy
+Edit
+ const withForecast = useMemo(() => {
+   return semesters.map((s) => {
+-    if (s.gpa !== null)
+-      return { ...s, avg: null, high: null, low: null } as any;
++    if (s.gpa !== null)
++      // anchor completed points so Recharts sees a continuous line
++      return { ...s, avg: s.gpa, high: s.gpa, low: s.gpa };
+(Either fix works; anchoring looks cleaner because you see the line “continue” into the forecast zone.)
+
+Micro‑polish suggestions
+Area band between high and low
+
+tsx
+Copy
+Edit
+<Area
+  dataKey="high"
+  stroke="transparent"
+  fill="url(#range)"
+  fillOpacity={0.08}
+  activeDot={false}
+  connectNulls
+/>
+Then define a simple <LinearGradient id="range" …>.
+
+Motion easing — replace easeOut with cubic-bezier(.4,0,.2,1) for iOS‑feel.
+
+Legend placement — dock left below title on mobile to avoid truncation.
+
+Semantic heading — h2 inside the card for screen‑reader hierarchy.
+
+Forecast algorithm hook — extract to useGpaForecast(semesters, { band: .25 }) so devs can swap in ML.
+
+TL;DR for the team
+Root breakage: Recharts needs numeric values at the earlier indices; anchoring or connectNulls fixes it.
+Visual tweaks: adjust slate line color, consider shaded forecast band, and add responsive resize handling.
+
+Apply the diff, test in both light/dark, and you’re good. Ping if you want the shaded‑area snippet fleshed out further!

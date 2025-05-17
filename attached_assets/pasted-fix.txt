@@ -1,0 +1,128 @@
+### 🩹 Fix only the two things that broke
+
+Extra header/footer on non‑Landing pages
+
+Missing right‑click → “Upload Image” + background on Landing
+
+Everything else stays exactly as you already have it.
+
+## 1 · Kill the duplicate header/footer
+
+Open every page component except Landing.tsx (e.g. Classes.tsx, Book.tsx, Grades.tsx, …) and delete only the highlighted lines:
+
+diff
+Copy
+Edit
+- import Header from "@/components/header";
+- import Footer from "@/components/footer";
+
+export default function Classes() {
+  return (
+    <>
+-     <Header />
+
+      {/* …your page content… */}
+
+-     <Footer />
+    </>
+  );
+}
+Do not touch Landing.tsx; its header/footer were already removed earlier.
+
+## 2 · Put the Context‑Menu trigger back on Landing
+
+Replace the return block of Landing.tsx with this exact snippet (nothing else changes):
+
+tsx
+Copy
+Edit
+return (
+  <ContextMenu>
+    {/* Radix will use <div> itself as the trigger  */}
+    <ContextMenuTrigger asChild>
+      <div
+        className="flex-1 flex items-center justify-center overflow-hidden"
+        style={
+          backgroundImage
+            ? {
+                backgroundImage: `url(${backgroundImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : {}
+        }
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !backgroundImage && fileInputRef.current?.click()}
+      >
+        {!backgroundImage && (
+          <div
+            ref={dropZoneRef}
+            className={`w-3/4 max-w-md h-56 border-2 border-dashed rounded-lg
+              ${isDragging
+                ? "border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                : "border-gray-300 dark:border-gray-700"}
+              flex flex-col items-center justify-center cursor-pointer`}
+          >
+            {/* icon */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-10 w-10 text-gray-400 dark:text-gray-600 mb-3"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2 1.6-1.6a2 2 0 012.8 0L20 14M12 8h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p className="text-gray-500 dark:text-gray-400">
+              Click or drag an image here
+            </p>
+          </div>
+        )}
+
+        {/* hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImageUpload}
+        />
+      </div>
+    </ContextMenuTrigger>
+
+    {/* right‑click menu */}
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => fileInputRef.current?.click()}>
+        Upload image
+      </ContextMenuItem>
+      {backgroundImage && (
+        <ContextMenuItem
+          onSelect={() => {
+            setBackgroundImage(null);
+            localStorage.removeItem("backgroundImage");
+            toast({ title: "Success", description: "Image removed" });
+          }}
+        >
+          Remove image
+        </ContextMenuItem>
+      )}
+    </ContextMenuContent>
+  </ContextMenu>
+);
+Key details that restore the feature:
+
+ContextMenuTrigger **asChild** — avoids the extra <button> that broke the height
+
+The outer <div> gets flex-1 so it fills the space and shows the background
+
+The hidden <input> and drag‑events are exactly your originals
+
+### Done
+
+Non‑Landing pages now show one header + footer (Layout only)
+
+Landing once again lets you right‑click → Upload → image fills the window
+
+Save, refresh Replit, and confirm.

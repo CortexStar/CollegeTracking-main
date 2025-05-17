@@ -1,0 +1,122 @@
+Below is a drop‑in replacement for your Header, Footer, and a tiny Layout wrapper that keeps them identical on every page.
+
+1. components/header.tsx
+tsx
+Copy
+Edit
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
+/** 100 %‑width, left‑aligned header */
+export default function Header() {
+  return (
+    <header className="sticky top-0 z-50 h-16 w-full bg-slate-800 text-slate-100">
+      {/* no max‑width container ⇒ items flush‑left */}
+      <div className="flex h-full items-center gap-4 px-4">
+        <Link href="/" className="text-lg font-bold tracking-wide">
+          COURSE CHARTS
+        </Link>
+
+        {/* main nav buttons – add as many as you like */}
+        <nav className="flex gap-2">
+          <Button asChild size="sm" variant="secondary">
+            <Link href="/classes">📋 Classes</Link>
+          </Button>
+          <Button asChild size="sm" variant="secondary">
+            <Link href="/book">📕 Book</Link>
+          </Button>
+          <Button asChild size="sm" variant="secondary">
+            <Link href="/grades">📊 Grades & Forecasting</Link>
+          </Button>
+        </nav>
+
+        {/* put right‑side icons AFTER the nav and push them with ml‑auto */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* example refresh icon button */}
+          <Button size="icon" variant="ghost">
+            <span className="i-lucide-rotate-cw h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+    </header>
+  );
+}
+2. components/footer.tsx
+tsx
+Copy
+Edit
+/** 100 %‑width, left‑aligned footer */
+export default function Footer() {
+  return (
+    <footer className="h-16 w-full bg-slate-800 text-slate-100">
+      <div className="flex h-full items-center px-4">
+        <span className="text-sm">© {new Date().getFullYear()} COURSE CHARTS</span>
+
+        {/* right‑side icons / links */}
+        <div className="ml-auto flex gap-4">
+          <a href="/privacy" className="text-sm hover:underline">
+            Privacy
+          </a>
+          <a href="/terms" className="text-sm hover:underline">
+            Terms
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+3. components/layout.tsx
+Wrap every page in this so the header & footer stay consistent.
+
+tsx
+Copy
+Edit
+import Header from "@/components/header";
+import Footer from "@/components/footer";
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-900">
+      <Header />
+      {/* leftover space – your pages drop here */}
+      <main className="flex-1">{children}</main>
+      <Footer />
+    </div>
+  );
+}
+4. Use the layout on each page
+If you’re in Next 13/14 app router, wrap root layout:
+
+tsx
+Copy
+Edit
+// app/layout.tsx
+import Layout from "@/components/layout";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return <Layout>{children}</Layout>;
+}
+If you’re on pages‑router, wrap inside _app.tsx:
+
+tsx
+Copy
+Edit
+// pages/_app.tsx
+import type { AppProps } from "next/app";
+import Layout from "@/components/layout";
+import "@/styles/globals.css";
+
+export default function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <Layout>
+      <Component {...pageProps} />
+    </Layout>
+  );
+}
+What this solves
+Issue seen in the screenshot	How the new code fixes it
+Header / footer content starts ~15 px from the left (was inside a centered .container or mx-auto)	Removed the max‑width wrapper; everything sits in a full‑width flex row with just px-4 for breathing room
+Different pages showed different header spacing	All pages now share the single Layout component
+1‑pixel “gap” below the header	Header keeps the bottom border only if you want it – just omit border-b if you prefer a seamless edge
+
+Save → reload, and every page will have a flush‑left header / footer with identical styling.

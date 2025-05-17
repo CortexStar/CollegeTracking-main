@@ -1,0 +1,175 @@
+Thought for 11 seconds
+Below is a surgical patch you can paste straight into Replit’s AI helper.
+Every step is numbered and scoped to one file: client/src/pages/grades.tsx.
+Follow them exactly (copy‑blocks are complete), press Save, then refresh the
+preview—blank rows will be editable immediately and each course row will have a
+right‑click → Delete Course option.
+
+1 Replace the blank‑row factory
+tsx
+Copy
+Edit
+// ─── helpers ──────────────────────────────────────────────────────────────
+//  ⬇️  DELETE the old makeBlankCourse() and paste this one
+const makeBlankCourse = (): Course => ({
+  // leave user‑visible fields empty
+  id: "",
+  title: "",
+  grade: "",
+  credits: 0,
+  gradePoints: 0,
+  // internal key so Drag‑and‑Drop stays stable
+  _uid: nanoid(6) as unknown as never
+});
+(The _uid property never renders; it’s just for React keys.)
+
+2 Overwrite the whole addCourseToSemester function
+tsx
+Copy
+Edit
+// ─── Add course to existing semester ──────────────────────────────────────
+const addCourseToSemester = () => {
+  if (!currentSemesterId) return;
+
+  let coursesToAdd: Course[] = [];
+
+  if (newCourseData.trim()) {
+    coursesToAdd = parseCourseData(newCourseData);
+    if (coursesToAdd.length === 0) {
+      toast({
+        title: "Error",
+        description: "Could not parse any valid courses from the input",
+        variant: "destructive",
+      });
+      return;
+    }
+  } else {
+    coursesToAdd = [makeBlankCourse()];
+  }
+
+  // remember where the new row will be inserted
+  const indexMap: Record<string, number> = {};
+  setSemesters(prev =>
+    prev.map(sem => {
+      if (sem.id !== currentSemesterId) return sem;
+      indexMap[sem.id] = sem.courses.length; // position of first new row
+      const updatedCourses = [...sem.courses, ...coursesToAdd];
+
+      const totalCredits     = updatedCourses.reduce((s, c) => s + c.credits, 0);
+      const totalGradePoints = updatedCourses.reduce((s, c) => s + c.gradePoints, 0);
+
+      return {
+        ...sem,
+        courses: updatedCourses,
+        totalCredits,
+        totalGradePoints,
+        gpa: totalCredits
+          ? parseFloat((totalGradePoints / totalCredits).toFixed(2))
+          : 0,
+      };
+    })
+  );
+
+  // if user added a BLANK row, open it in edit‑mode immediately
+  if (!newCourseData.trim()) {
+    setTimeout(() => {
+      startEditingCourse(
+        currentSemesterId!,
+        indexMap[currentSemesterId!],
+        "id",
+        ""
+      );
+    }, 0);
+  }
+
+  setNewCourseData("");
+  setIsAddCourseDialogOpen(false);
+};
+3 Add a tiny helper to delete a single course
+Paste just before the component’s return (:
+
+tsx
+Copy
+Edit
+// ─── Remove one course ────────────────────────────────────────────────────
+const removeCourse = (semesterId: string, index: number) => {
+  setSemesters(prev =>
+    prev.map(sem => {
+      if (sem.id !== semesterId) return sem;
+      const updated = [...sem.courses];
+      updated.splice(index, 1);
+
+      const totalCredits     = updated.reduce((s, c) => s + c.credits, 0);
+      const totalGradePoints = updated.reduce((s, c) => s + c.gradePoints, 0);
+
+      return {
+        ...sem,
+        courses: updated,
+        totalCredits,
+        totalGradePoints,
+        gpa: totalCredits
+          ? parseFloat((totalGradePoints / totalCredits).toFixed(2))
+          : 0,
+      };
+    })
+  );
+};
+4 Wrap each course row with a context‑menu
+Find the inner loop that renders courses:
+
+tsx
+Copy
+Edit
+{semester.courses.map((course, i) => {
+  ...
+  return (
+    <TableRow key={course._uid ?? i}>
+Change it to ▶
+
+tsx
+Copy
+Edit
+{semester.courses.map((course, i) => {
+  ...
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <TableRow key={course._uid ?? i}>
+Then immediately before the closing </TableRow> add:
+
+tsx
+Copy
+Edit
+      </TableRow>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem
+        onClick={() => removeCourse(semester.id, i)}
+        className="text-red-500 hover:text-red-600 focus:text-red-600"
+      >
+        Delete Course
+      </ContextMenuItem>
+    </ContextMenuContent>
+  </ContextMenu>
+(Indentation doesn’t matter—just keep JSX nesting correct.)
+
+5 Make empty cells single‑click editable
+In each <span> that displays a course field (id, title, grade, credits)
+replace this click‑guard:
+
+tsx
+Copy
+Edit
+if (e.detail === 3) { ... }
+with:
+
+tsx
+Copy
+Edit
+const isEmpty = field === 'credits'
+  ? course.credits === 0
+  : (course[field] as string) === "";
+
+if (isEmpty || e.detail === 3) { ... }
+(Four occurrences—Ctrl+F → e.detail === 3 and replace.)
+

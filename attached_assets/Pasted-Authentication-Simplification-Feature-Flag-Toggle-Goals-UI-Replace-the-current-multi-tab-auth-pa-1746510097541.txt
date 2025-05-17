@@ -1,0 +1,107 @@
+Authentication Simplification & Feature‑Flag Toggle
+Goals
+UI – Replace the current multi‑tab auth page with a single, minimal landing:
+
+pgsql
+Copy
+Edit
+Welcome to Course Charts
+[ Continue with Google ]   [ Log in ]
+Google SSO handles both sign‑up & sign‑in; no extra forms.
+
+Fix the broken register flow by delegating everything to Google OAuth (remove local POST /register).
+
+Toggle – One boolean switch to turn the whole auth system on or off (guest mode).
+
+1. Feature‑flag helper
+ts
+Copy
+Edit
+// client/src/lib/config.ts (or a shared package)
+export const AUTH_ENABLED = (import.meta.env.VITE_AUTH ?? "Y").toUpperCase() === "Y";
+ts
+Copy
+Edit
+// server/config/auth.ts
+export const AUTH_ENABLED = (process.env.AUTH ?? "Y").toUpperCase() === "Y";
+Set VITE_AUTH (front‑end) / AUTH (back‑end) to Y or N in .env.
+
+2. Minimal <AuthPage>
+tsx
+Copy
+Edit
+import { AUTH_ENABLED } from "@/lib/config";
+import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
+
+export default function AuthPage() {
+  if (!AUTH_ENABLED) return null;
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="space-y-6 text-center">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Welcome to Course Charts
+        </h1>
+        <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID!}>
+          <GoogleLogin
+            onSuccess={(cred) => {
+              /* send cred.credential to /api/auth/google */
+            }}
+          />
+        </GoogleOAuthProvider>
+      </div>
+    </div>
+  );
+}
+3. Routing / Guard
+tsx
+Copy
+Edit
+import { AUTH_ENABLED } from "@/lib/config";
+
+<Route
+  path="/"
+  element={
+    AUTH_ENABLED ? (
+      <RequireAuth>
+        <Home />
+      </RequireAuth>
+    ) : (
+      <Home />
+    )
+  }
+/>
+<Route
+  path="/login"
+  element={AUTH_ENABLED ? <AuthPage /> : <Navigate to="/" />}
+/>
+ts
+Copy
+Edit
+// server
+if (AUTH_ENABLED) app.use("/api/*", requireAuth);
+4. Environment setup (.env)
+ini
+Copy
+Edit
+# Toggle guest mode
+AUTH=N   # disable login entirely
+AUTH=Y   # enforce Google login
+
+# Google OAuth
+VITE_GOOGLE_CLIENT_ID=xxxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=xxxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=xxxxxxxxxxxxxxxx
+5. Remove legacy endpoints
+Delete POST /register.
+
+Replace POST /login with /auth/google that exchanges the id_token for a session/JWT.
+
+Update any React hooks (useAuth) to hit the new endpoint.
+
+Payoff
+Instant guest mode – flip AUTH=N for demos.
+
+Cleaner UX – single Google button for sign‑in/out.
+
+Less code – no local password hashing or validation to maintain.

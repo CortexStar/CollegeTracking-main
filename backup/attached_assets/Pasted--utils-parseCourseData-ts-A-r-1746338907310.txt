@@ -1,0 +1,174 @@
+// utils/parseCourseData.ts
+// ------------------------------------------------------------
+// A robust parser that converts arbitrarily‑formatted blocks of
+// course‑listing text (e.g. copy‑pasted from an online transcript)
+// into the structured representation required by the semester
+// overview component shown in the design mock‑up.
+//
+// Features
+// --------
+// • Tolerant of extra whitespace, blank lines, Windows/Mac/Unix
+//   line endings, tabs, and irregular spacing.
+// • Detects course boundaries by the presence of a course code
+//   (3–4 capital letters + 4 digits) irrespective of any trailing
+//   section/CRN information in parentheses.
+// • Extracts the first subsequent non‑empty line as the course
+//   title.
+// • Extracts the first token that looks like a grade (A, A‑, B+ …
+//   or "--" when grades are not yet posted).
+// • Extracts *all* numeric tokens that follow (they may appear on
+//   one line or separate lines) and infers which token represents
+//   GPA‑affecting credits (prefers an integer if both “4.00” and
+//   “4” are present).
+// • Computes grade points and semester GPA with full +/‑ mapping
+//   (supports UF 4‑point scale by default but can be customised).
+// • Provides a deterministic output interface and leaves the UI
+//   layer to decide how to display missing/invalid information.
+// ------------------------------------------------------------
+
+export interface Course {
+  /** e.g. "ACG2021" */
+  id: string;
+  /** e.g. "Intro Financial Accounting" */
+  title: string;
+  /** Raw grade string ("A", "B+", "--", etc.) */
+  grade: string;
+  /** Credit hours that contribute to GPA */
+  credits: number;
+  /** gradePoints === credits * gradePointValue or null when N/A */
+  gradePoints: number | null;
+}
+
+export interface SemesterSummary {
+  courses: Course[];
+  /** Sum of credits that *actually* count in GPA calculation */
+  gradedCredits: number;
+  /** Sum of grade points across graded courses */
+  totalGradePoints: number;
+  /** GPA rounded to 3 decimals, or null when no graded courses */
+  gpa: number | null;
+}
+
+/**
+ * Map of letter grades → 4‑point scale values (expand as needed).
+ * Feel free to override via the second argument of `parseCourseData`.
+ */
+export const DEFAULT_GRADE_POINTS_MAP: Record<string, number> = {
+  A: 4.0,
+  'A-': 3.67,
+  'B+': 3.33,
+  B: 3.0,
+  'B-': 2.67,
+  'C+': 2.33,
+  C: 2.0,
+  'C-': 1.67,
+  'D+': 1.33,
+  D: 1.0,
+  'D-': 0.67,
+  F: 0.0,
+};
+
+const COURSE_CODE_RE = /\b[A-Z]{3,4}\d{4}\b/;
+const GRADE_RE = /^(?:A|A-|B\+|B|B-|C\+|C|C-|D\+|D|D-|F|--)(?:\s|$)/i;
+
+/**
+ * Attempts to decide which numeric token in an array represents credit hours.
+ * Heuristic: prefer an integer > 0; otherwise fall back to the *last* numeric.
+ */
+function pickCreditValue(nums: number[]): number | null {
+  const intCandidate = nums.find((n) => n % 1 === 0 && n > 0);
+  if (intCandidate !== undefined) return intCandidate;
+  return nums.length ? nums[nums.length - 1] : null;
+}
+
+/**
+ * Primary parsing function. Accepts raw copy‑pasted text and returns a fully
+ * structured SemesterSummary. Parsing is resilient to format quirks and        
+ * unexpected line breaks.
+ */
+export function parseCourseData(
+  raw: string,
+  gradeScale: Record<string, number> = DEFAULT_GRADE_POINTS_MAP,
+): SemesterSummary {
+  const normalised = raw
+    .replace(/\r\n?/g, '\n') // normalise newlines
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean); // drop empty lines
+
+  const courses: Course[] = [];
+  let cursor = 0;
+
+  while (cursor < normalised.length) {
+    // 1️⃣ Find the next course‑code line.
+    while (cursor < normalised.length && !COURSE_CODE_RE.test(normalised[cursor])) {
+      cursor += 1;
+    }
+    if (cursor >= normalised.length) break; // no more courses
+
+    const codeLine = normalised[cursor++];
+    const idMatch = codeLine.match(COURSE_CODE_RE);
+    const id = idMatch ? idMatch[0] : 'UNKNOWN';
+
+    // 2️⃣ Course title: first non‑empty line after the code line.
+    if (cursor >= normalised.length) break; // defensive
+    const title = normalised[cursor++] ?? '';
+
+    // 3️⃣ Grade: search forward until we hit something GRADE‑like or numeric.
+    let grade = '--';
+    while (cursor < normalised.length && !GRADE_RE.test(normalised[cursor]) && !/^[-+]?\d/.test(normalised[cursor])) {
+      cursor += 1;
+    }
+    if (cursor < normalised.length && GRADE_RE.test(normalised[cursor])) {
+      grade = normalised[cursor++].toUpperCase();
+    }
+
+    // 4️⃣ Collect numeric tokens until we see the next course code or run out.
+    const numericValues: number[] = [];
+    while (
+      cursor < normalised.length &&
+      !COURSE_CODE_RE.test(normalised[cursor])
+    ) {
+      const maybeNum = Number(normalised[cursor]);
+      if (!Number.isNaN(maybeNum)) numericValues.push(maybeNum);
+      cursor += 1;
+    }
+
+    const credits = pickCreditValue(numericValues);
+
+    // 5️⃣ Compute grade points when applicable.
+    let gradePoints: number | null = null;
+    if (credits !== null && gradeScale[grade]) {
+      gradePoints = +(credits * gradeScale[grade]).toFixed(2);
+    }
+
+    courses.push({ id, title, grade, credits: credits ?? 0, gradePoints });
+  }
+
+  // Aggregate semester statistics.
+  const gradedCourses = courses.filter((c) => c.gradePoints !== null);
+  const gradedCredits = gradedCourses.reduce((acc, c) => acc + c.credits, 0);
+  const totalGradePoints = gradedCourses.reduce((acc, c) => acc + (c.gradePoints ?? 0), 0);
+  const gpa = gradedCredits > 0 ? +(totalGradePoints / gradedCredits).toFixed(3) : null;
+
+  return { courses, gradedCredits, totalGradePoints, gpa };
+}
+
+// ------------------------------------------------------------
+// Example usage inside a React component (pseudo‑code):
+// ------------------------------------------------------------
+// const [rawInput, setRawInput] = useState("");
+// const summary = useMemo(() => parseCourseData(rawInput), [rawInput]);
+//
+// <TextArea value={rawInput} onChange={e => setRawInput(e.target.value)} />
+// {summary.courses.map(c => (
+//   <Tr key={c.id}>
+//     <Td>{c.id}</Td>
+//     <Td>{c.title}</Td>
+//     <Td>{c.grade}</Td>
+//     <Td>{c.credits.toFixed(1)}</Td>
+//     <Td>{c.gradePoints?.toFixed(2) ?? "—"}</Td>
+//   </Tr>
+// ))}
+// <tfoot>GPA: {summary.gpa ?? "N/A"}</tfoot>
+// ------------------------------------------------------------

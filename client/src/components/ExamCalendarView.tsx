@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState } from "react";
 import { useKeenSlider } from "keen-slider/react";
 import "keen-slider/keen-slider.min.css";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface ExamEntry {
   id: string;
@@ -34,9 +35,16 @@ const RED_HOVER = "hover:bg-red-100";
 const HOVER = "hover:bg-muted/50 hover:border-muted-300";
 const MONTH_HEADING = "text-xl font-semibold uppercase tracking-wider mb-4 select-none";
 
+const zoomVariants = {
+  enter: (direction: number) => ({ opacity: 0, scale: direction === 1 ? 0.92 : 1.08 }),
+  center: { opacity: 1, scale: 1 },
+  exit: (direction: number) => ({ opacity: 0, scale: direction === 1 ? 1.08 : 0.92 }),
+};
+
 export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => {
   const [viewMode, setViewMode] = useState<'single' | 'overview'>('single');
   const [pendingMonthIdx, setPendingMonthIdx] = useState<number | null>(null);
+  const [direction, setDirection] = useState<1 | -1>(1); // 1: to month, -1: to overview
 
   // Group exams by month
   const monthsWithExams = useMemo(() => {
@@ -107,105 +115,122 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
   const getMonthName = (month: Date) => month.toLocaleString("default", { month: "long" }) + (showYear ? ` ${month.getFullYear()}` : "");
 
   // --- RENDER ---
-  if (viewMode === 'overview') {
-    return (
-      <div className="w-full mt-12">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
-          {allMonths.map((month, idx) => {
-            const year = month.getFullYear();
-            const m = month.getMonth();
-            const days = getMonthDays(year, m);
-            return (
-              <div
-                key={getMonthKey(month)}
-                className="rounded-xl shadow-sm bg-white dark:bg-card p-4 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition"
-                onClick={() => { setPendingMonthIdx(idx); setViewMode('single'); }}
-              >
-                <div className={MONTH_HEADING}>
-                  {getMonthName(month)}
-                </div>
-                <div className="grid grid-cols-7 gap-1 w-full">
-                  {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
-                    <div key={i} />
-                  ))}
-                  {days.map(day => {
-                    const dateStr = day.toISOString().slice(0, 10);
-                    const exams = examDaysMap.get(dateStr);
-                    const hasExam = !!exams;
-                    const isCompleted = hasExam && exams.some(e => e.completed);
-                    let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
-                    let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
-                    return (
-                      <div
-                        key={dateStr}
-                        className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
-                        style={{ minHeight: 28 }}
-                        title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
-                        tabIndex={0}
-                      >
-                        {day.getDate()}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // --- SINGLE MONTH SLIDER ---
   return (
     <div className="w-full mt-12">
-      <div className="relative overflow-x-hidden">
-        <div ref={sliderRef} className="keen-slider rounded-xl shadow-sm bg-white dark:bg-card w-full touch-pan-x cursor-grab">
-          {allMonths.map((month, idx) => {
-            const year = month.getFullYear();
-            const m = month.getMonth();
-            const days = getMonthDays(year, m);
-            const monthName = getMonthName(month);
-            return (
-              <div key={getMonthKey(month)} className="keen-slider__slide flex flex-col items-center justify-start min-h-[340px] p-6 min-w-full max-w-full">
-                <div
-                  className={MONTH_HEADING + " cursor-pointer hover:underline"}
-                  onClick={() => setViewMode('overview')}
-                  tabIndex={0}
-                  role="button"
-                  aria-label="Show all months overview"
-                >
-                  {monthName}
-                </div>
-                <div className="grid grid-cols-7 gap-1 w-full">
-                  {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
-                    <div key={i} />
-                  ))}
-                  {days.map(day => {
-                    const dateStr = day.toISOString().slice(0, 10);
-                    const exams = examDaysMap.get(dateStr);
-                    const hasExam = !!exams;
-                    const isCompleted = hasExam && exams.some(e => e.completed);
-                    let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
-                    let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
-                    return (
+      <AnimatePresence mode="wait" initial={false} custom={direction}>
+        {viewMode === 'overview' ? (
+          <motion.div
+            key="overview"
+            custom={direction}
+            variants={zoomVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
+              {allMonths.map((month, idx) => {
+                const year = month.getFullYear();
+                const m = month.getMonth();
+                const days = getMonthDays(year, m);
+                return (
+                  <div
+                    key={getMonthKey(month)}
+                    className="rounded-xl shadow-sm bg-white dark:bg-card p-4 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition"
+                    onClick={() => { setPendingMonthIdx(idx); setDirection(1); setViewMode('single'); }}
+                  >
+                    <div className={MONTH_HEADING}>
+                      {getMonthName(month)}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 w-full">
+                      {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
+                        <div key={i} />
+                      ))}
+                      {days.map(day => {
+                        const dateStr = day.toISOString().slice(0, 10);
+                        const exams = examDaysMap.get(dateStr);
+                        const hasExam = !!exams;
+                        const isCompleted = hasExam && exams.some(e => e.completed);
+                        let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
+                        let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
+                        return (
+                          <div
+                            key={dateStr}
+                            className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
+                            style={{ minHeight: 28 }}
+                            title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
+                            tabIndex={0}
+                          >
+                            {day.getDate()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="single"
+            custom={direction}
+            variants={zoomVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          >
+            <div className="relative overflow-x-hidden">
+              <div ref={sliderRef} className="keen-slider rounded-xl shadow-sm bg-white dark:bg-card w-full touch-pan-x cursor-grab">
+                {allMonths.map((month, idx) => {
+                  const year = month.getFullYear();
+                  const m = month.getMonth();
+                  const days = getMonthDays(year, m);
+                  const monthName = getMonthName(month);
+                  return (
+                    <div key={getMonthKey(month)} className="keen-slider__slide flex flex-col items-center justify-start min-h-[340px] p-6 min-w-full max-w-full">
                       <div
-                        key={dateStr}
-                        className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
-                        style={{ minHeight: 36 }}
-                        title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
+                        className={MONTH_HEADING + " cursor-pointer hover:underline"}
+                        onClick={() => { setDirection(-1); setViewMode('overview'); }}
                         tabIndex={0}
+                        role="button"
+                        aria-label="Show all months overview"
                       >
-                        {day.getDate()}
+                        {monthName}
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="grid grid-cols-7 gap-1 w-full">
+                        {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
+                          <div key={i} />
+                        ))}
+                        {days.map(day => {
+                          const dateStr = day.toISOString().slice(0, 10);
+                          const exams = examDaysMap.get(dateStr);
+                          const hasExam = !!exams;
+                          const isCompleted = hasExam && exams.some(e => e.completed);
+                          let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
+                          let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
+                          return (
+                            <div
+                              key={dateStr}
+                              className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
+                              style={{ minHeight: 36 }}
+                              title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
+                              tabIndex={0}
+                            >
+                              {day.getDate()}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }; 

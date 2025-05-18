@@ -141,15 +141,11 @@ export default function ExamsNewPage() {
           classCode: manualClassCode.trim() || undefined,
           classTitle: manualClassTitle.trim(),
           examName: pendingExam.examName.trim(),
-          // examNumber is no longer a separate field for manual entry based on new requirements
-          examDate: pendingExam.examDate.trim(), // Ensure date is trimmed
+          examDate: pendingExam.examDate.trim(),
           source: 'manual'
         });
       });
     } else if (manualClassTitle.trim() && (currentExamNameInput.trim() || currentExamDateInput.trim()) && pendingManualExams.length === 0) {
-        // User might have filled the form but not clicked "Add This Exam to List"
-        // For now, we can prompt them or decide if we auto-add it.
-        // Let's prompt via error for now if class title is present but no exams listed.
         setUploadError("Please add exam details to the list before saving, or clear class information if not adding manual exams.");
         setIsSaving(false);
         return;
@@ -157,23 +153,26 @@ export default function ExamsNewPage() {
 
     if (allParsedExams.length === 0) {
         if (selectedFiles.length > 0 && !manualClassTitle.trim()) {
-             // Files selected, no manual class info
             setUploadError("PDF processing is disabled. Please add exam information manually or clear selected files.");
         } else if (!manualClassTitle.trim() && pendingManualExams.length === 0 && !currentExamNameInput.trim() && !currentExamDateInput.trim()) {
-            // No manual class info, no pending exams, no current input
             setUploadError("No manual exam data entered. Please add exam information.");
         } else if (manualClassTitle.trim() && pendingManualExams.length === 0 && !currentExamNameInput.trim() && !currentExamDateInput.trim()) {
-            // Manual class info entered, but no exams in list and no current input for an exam
             setUploadError("No exams listed for the current class. Please add exam details.");
         }
-        // Add other conditions if needed
         setIsSaving(false);
         return;
     }
     
-    console.log('handleSaveExams: About to save to localStorage (manual entries only):', allParsedExams); 
-
-    localStorage.setItem('parsedExamsData', JSON.stringify(allParsedExams));
+    // Get existing exams from localStorage
+    const existingExamsJson = localStorage.getItem('parsedExamsData');
+    const existingExams: ExamEntry[] = existingExamsJson ? JSON.parse(existingExamsJson) : [];
+    
+    // Combine existing and new exams
+    const updatedExams = [...existingExams, ...allParsedExams];
+    
+    // Save to localStorage
+    localStorage.setItem('parsedExamsData', JSON.stringify(updatedExams));
+    
     // Clear inputs after successful save
     setManualClassTitle('');
     setManualClassCode('');
@@ -181,8 +180,6 @@ export default function ExamsNewPage() {
     setCurrentExamNameInput('');
     setCurrentExamDateInput('');
     setShowExamEntryForm(false);
-
-    console.log('handleSaveExams: Successfully saved to localStorage. Navigating...');
 
     setIsSaving(false);
     navigate('/exams');

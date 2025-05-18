@@ -10,6 +10,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import { ProgressCircle } from "@/components/progress-circle";
+import { ExamCalendarView } from "@/components/ExamCalendarView";
 
 // Updated ExamEntry interface (should match the one in new.tsx or be imported)
 interface ExamEntry {
@@ -49,7 +50,9 @@ export default function ExamsPage() {
   }, [location]);
 
   const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
+    // Parse as local date to avoid timezone issues
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
     return date.toLocaleString('default', { month: 'long', day: 'numeric' });
   };
 
@@ -125,7 +128,7 @@ export default function ExamsPage() {
   return (
     <div className="container py-6 pb-12 max-w-6xl mx-auto">
       <div className="flex justify-between items-end border-b-2 border-black pb-2 mb-6">
-        <h1 className="text-3xl font-bold">Exam Calendar</h1>
+        <h1 className="text-3xl font-bold">Exams</h1>
         <div className="flex items-center gap-2">
           <ToggleGroup 
             type="single" 
@@ -151,7 +154,7 @@ export default function ExamsPage() {
                   {exams.map(exam => (
                     <ContextMenu key={exam.id}>
                       <ContextMenuTrigger asChild>
-                        <li className={`p-4 border rounded-lg shadow-sm bg-card hover:bg-muted/50 cursor-pointer ${exam.completed ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                        <li className={`p-4 border rounded-lg shadow-sm bg-card cursor-pointer ${exam.completed ? 'bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-900/40' : 'hover:bg-muted/50'}`}>
                           <div className="flex justify-between items-center">
                             <div className="font-semibold">
                               {viewMode === "chronological" ? (
@@ -204,6 +207,11 @@ export default function ExamsPage() {
             </div>
           </div>
         )}
+        {/* Calendar heading */}
+        <div className="mt-16 mb-6">
+          <h2 className="text-3xl font-bold border-b-2 border-black pb-2">Calendar</h2>
+        </div>
+        <ExamCalendarView exams={parsedExams} />
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useEffect, useState } from "react";
 import { useKeenSlider } from "keen-slider/react";
 import "keen-slider/keen-slider.min.css";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface ExamEntry {
   id: string;
@@ -42,7 +43,7 @@ const zoomVariants = {
 };
 
 export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => {
-  const [viewMode, setViewMode] = useState<'single' | 'overview'>('single');
+  const [viewMode, setViewMode] = useState<'single' | 'overview'>('overview');
   const [pendingMonthIdx, setPendingMonthIdx] = useState<number | null>(null);
   const [direction, setDirection] = useState<1 | -1>(1); // 1: to month, -1: to overview
 
@@ -90,21 +91,33 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
   );
   const [sliderRef, instanceRef] = useKeenSlider<HTMLDivElement>({
     initial: currentIdx,
-    slides: { perView: 1, spacing: 0 },
-    mode: "free",
-    rubberband: true,
-    dragEnded(s: any) {
-      // Snap to nearest slide after drag ends
-      const idx = Math.round(s.track.details.abs);
-      s.moveToIdx(idx, true);
-      setCurrentIdx(idx);
+    slides: { 
+      perView: 1, 
+      spacing: 0,
+    },
+    mode: "snap",
+    rubberband: false,
+    loop: true,
+    defaultAnimation: {
+      duration: 650,
+      easing: (t: number) => 1 - Math.pow(1 - t, 5),
+    },
+    slideChanged(s) {
+      setCurrentIdx(s.track.details.rel);
+    },
+    animationEnded(s) {
+      if (instanceRef.current) { 
+        setCurrentIdx(instanceRef.current.track.details.rel);
+      }
     },
   });
 
   // When returning from overview, scroll to the selected month
   useEffect(() => {
     if (viewMode === 'single' && pendingMonthIdx !== null && instanceRef.current) {
-      instanceRef.current.moveToIdx(pendingMonthIdx, true);
+      // Ensure the slider is on the correct month
+      instanceRef.current.moveToIdx(pendingMonthIdx);
+      setCurrentIdx(pendingMonthIdx);
       setPendingMonthIdx(null);
     }
   }, [viewMode, pendingMonthIdx, instanceRef]);
@@ -123,52 +136,67 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
             key="overview"
             custom={direction}
             variants={zoomVariants}
-            initial="enter"
+            initial={direction === -1 ? "enter" : false}
             animate="center"
             exit="exit"
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
-              {allMonths.map((month, idx) => {
-                const year = month.getFullYear();
-                const m = month.getMonth();
-                const days = getMonthDays(year, m);
-                return (
-                  <div
-                    key={getMonthKey(month)}
-                    className="rounded-xl shadow-sm bg-white dark:bg-card p-4 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition"
-                    onClick={() => { setPendingMonthIdx(idx); setDirection(1); setViewMode('single'); }}
-                  >
-                    <div className={MONTH_HEADING}>
-                      {getMonthName(month)}
-                    </div>
-                    <div className="grid grid-cols-7 gap-1 w-full">
-                      {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
-                        <div key={i} />
-                      ))}
-                      {days.map(day => {
-                        const dateStr = day.toISOString().slice(0, 10);
-                        const exams = examDaysMap.get(dateStr);
-                        const hasExam = !!exams;
-                        const isCompleted = hasExam && exams.some(e => e.completed);
-                        let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
-                        let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
-                        return (
-                          <div
-                            key={dateStr}
-                            className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
-                            style={{ minHeight: 28 }}
-                            title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
-                            tabIndex={0}
-                          >
-                            {day.getDate()}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
+              <AnimatePresence>
+                {allMonths.map((month, idx) => {
+                  const year = month.getFullYear();
+                  const m = month.getMonth();
+                  const days = getMonthDays(year, m);
+                  return (
+                    <motion.div 
+                      key={getMonthKey(month)}
+                      layout 
+                      exit={{ opacity: 0, scale: 0.75, y: 20 }}
+                      transition={{ duration: 0.3 }}
+                      className="rounded-xl shadow-sm bg-white dark:bg-card p-4 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition"
+                      onClick={() => { 
+                        // Set index first to ensure slider knows where to go
+                        setCurrentIdx(idx);
+                        setPendingMonthIdx(idx); 
+                        setDirection(1); 
+                        setViewMode('single');
+                        
+                        // Give time for state updates to propagate before moving the slider
+                        setTimeout(() => {
+                          if (instanceRef.current) {
+                            instanceRef.current.moveToIdx(idx, false);
+                          }
+                        }, 50);
+                      }}
+                    >
+                      <div className={MONTH_HEADING}>
+                        {getMonthName(month)}
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 w-full">
+                        {days.map(day => {
+                          const dateStr = day.toISOString().slice(0, 10);
+                          const examsOnDay = examDaysMap.get(dateStr);
+                          const hasExam = !!examsOnDay;
+                          const isCompleted = hasExam && examsOnDay.some(e => e.completed);
+                          let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
+                          let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
+                          return (
+                            <div
+                              key={dateStr}
+                              className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer`}
+                              style={{ minHeight: 28 }}
+                              title={hasExam ? examsOnDay?.map(e => e.examName).join(", ") : undefined}
+                              tabIndex={0}
+                            >
+                              {day.getDate()}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             </div>
           </motion.div>
         ) : (
@@ -191,7 +219,7 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                   return (
                     <div key={getMonthKey(month)} className="keen-slider__slide flex flex-col items-center justify-start min-h-[340px] p-6 min-w-full max-w-full">
                       <div
-                        className={MONTH_HEADING + " cursor-pointer hover:underline"}
+                        className={MONTH_HEADING + " cursor-pointer"}
                         onClick={() => { setDirection(-1); setViewMode('overview'); }}
                         tabIndex={0}
                         role="button"
@@ -200,9 +228,6 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                         {monthName}
                       </div>
                       <div className="grid grid-cols-7 gap-1 w-full">
-                        {[...Array(new Date(year, m, 1).getDay())].map((_, i) => (
-                          <div key={i} />
-                        ))}
                         {days.map(day => {
                           const dateStr = day.toISOString().slice(0, 10);
                           const exams = examDaysMap.get(dateStr);
@@ -227,6 +252,36 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                   );
                 })}
               </div>
+              {allMonths.length > 0 && (
+                <>
+                  <div className="absolute left-0 top-0 bottom-0 w-1/6 group z-10"> {/* Hover area for left arrow */}
+                    <button
+                      onClick={() => {
+                        if (!instanceRef.current || allMonths.length === 0) return;
+                        instanceRef.current?.prev();
+                      }}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-gray-800/10 hover:bg-gray-800/25 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200"
+                      aria-label="Previous month"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                  </div>
+
+                  {/* Right Hover Area & Arrow */}
+                  <div className="absolute right-0 top-0 bottom-0 w-1/6 group z-10"> {/* Hover area for right arrow */}
+                    <button
+                      onClick={() => {
+                        if (!instanceRef.current || allMonths.length === 0) return;
+                        instanceRef.current?.next();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-gray-800/10 hover:bg-gray-800/25 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200"
+                      aria-label="Next month"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </motion.div>
         )}

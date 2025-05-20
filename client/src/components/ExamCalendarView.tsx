@@ -86,11 +86,9 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
   }, [exams]);
 
   // Keen-slider setup
-  const [currentIdx, setCurrentIdx] = useState(
-    Math.max(0, monthsWithExams.length ? allMonths.findIndex(m => getMonthKey(m) === getMonthKey(monthsWithExams[0].date)) : 0)
-  );
+  const [currentIdx, setCurrentIdx] = useState(0);
   const [sliderRef, instanceRef] = useKeenSlider<HTMLDivElement>({
-    initial: currentIdx,
+    initial: 0,
     slides: { 
       perView: 1, 
       spacing: 0,
@@ -105,17 +103,11 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
     slideChanged(s) {
       setCurrentIdx(s.track.details.rel);
     },
-    animationEnded(s) {
-      if (instanceRef.current) { 
-        setCurrentIdx(instanceRef.current.track.details.rel);
-      }
-    },
   });
 
-  // When returning from overview, scroll to the selected month
+  // Initialize the slider to the correct month when created or when the view mode changes
   useEffect(() => {
-    if (viewMode === 'single' && pendingMonthIdx !== null && instanceRef.current) {
-      // Ensure the slider is on the correct month
+    if (viewMode === 'single' && instanceRef.current && pendingMonthIdx !== null) {
       instanceRef.current.moveToIdx(pendingMonthIdx);
       setCurrentIdx(pendingMonthIdx);
       setPendingMonthIdx(null);
@@ -155,18 +147,9 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                       transition={{ duration: 0.3 }}
                       className="rounded-xl shadow-sm bg-white dark:bg-card p-4 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition"
                       onClick={() => { 
-                        // Set index first to ensure slider knows where to go
-                        setCurrentIdx(idx);
                         setPendingMonthIdx(idx); 
                         setDirection(1); 
                         setViewMode('single');
-                        
-                        // Give time for state updates to propagate before moving the slider
-                        setTimeout(() => {
-                          if (instanceRef.current) {
-                            instanceRef.current.moveToIdx(idx, false);
-                          }
-                        }, 50);
                       }}
                     >
                       <div className={MONTH_HEADING}>

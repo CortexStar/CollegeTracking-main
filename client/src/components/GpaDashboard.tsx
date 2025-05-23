@@ -191,7 +191,7 @@ const GpaDashboard: React.FC<Props> = ({ semesters }) => {
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.06} />
               <XAxis dataKey="term" interval="preserveStartEnd" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
               <YAxis domain={[2, 4]} ticks={[2, 2.5, 3, 3.5, 4]} tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
-              <Tooltip formatter={(v: any) => (v != null ? (v as number).toFixed(2) : "–")} labelFormatter={(t) => `Term: ${t}`} contentStyle={{ backdropFilter: "blur(6px)", background: "rgba(255,255,255,0.85)", borderRadius: 12, border: "none" }} />
+              <Tooltip formatter={(v: any) => (v != null ? (v as number).toFixed(2) : "–")} labelFormatter={(t) => `Term: ${t}`} contentStyle={{ backdropFilter: "blur(6px)", background: "rgba(255,255,255,0.85)", borderRadius: 12, border: "none" }} cursor={false} />
               <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: 16 }} />
 
               {(["Freshman", "Sophomore", "Junior", "Senior"] as const).map((lvl) => {

@@ -166,7 +166,10 @@ export default function TextbookToc({ onSelectPage, pdfUrl }: TextbookTocProps) 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="flex items-center gap-2">
+        <Button 
+          variant="outline" 
+          className="flex items-center gap-2 bg-transparent border-transparent hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
           <Book className="h-4 w-4" />
           Table of Contents
         </Button>

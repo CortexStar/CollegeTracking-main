@@ -182,7 +182,7 @@ export default function BookPage() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 bg-gray-50 border-gray-50 hover:bg-gray-100 dark:bg-gray-900 dark:border-gray-900 dark:hover:bg-gray-800"
                   onClick={() => window.open(pdfUrl, '_blank')}
                 >
                   <FileText className="h-4 w-4" />
@@ -191,7 +191,7 @@ export default function BookPage() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 bg-gray-50 border-gray-50 hover:bg-gray-100 dark:bg-gray-900 dark:border-gray-900 dark:hover:bg-gray-800"
                   onClick={() => window.print()}
                 >
                   <Printer className="h-4 w-4" />

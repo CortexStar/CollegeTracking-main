@@ -343,7 +343,89 @@ export default function GradesPage() {
         <div className="mb-6 relative">
           <div className="flex justify-between items-end border-b-2 border-black pb-2">
             <h2 className="text-3xl font-bold">Semesters</h2>
-            <Button size="sm" variant="outline" onClick={() => setIsDialogOpen(true)}>Add Semester</Button>
+            <div className="flex gap-2">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="bg-transparent border-transparent hover:bg-gray-100 dark:bg-transparent dark:border-transparent dark:hover:bg-gray-700"
+                  >
+                    Grade Scale
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-xl [&>button]:hidden">
+                  <DialogHeader>
+                    <DialogTitle>Grade Point Scale</DialogTitle>
+                    <DialogDescription>
+                      Standard 4.0 scale used for GPA calculation
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid grid-cols-2 gap-6 py-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">A</span>
+                        <span className="text-muted-foreground">4.00</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">A-</span>
+                        <span className="text-muted-foreground">3.67</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">B+</span>
+                        <span className="text-muted-foreground">3.33</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">B</span>
+                        <span className="text-muted-foreground">3.00</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">B-</span>
+                        <span className="text-muted-foreground">2.67</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">C+</span>
+                        <span className="text-muted-foreground">2.33</span>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">C</span>
+                        <span className="text-muted-foreground">2.00</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">C-</span>
+                        <span className="text-muted-foreground">1.67</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">D+</span>
+                        <span className="text-muted-foreground">1.33</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">D</span>
+                        <span className="text-muted-foreground">1.00</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">D-</span>
+                        <span className="text-muted-foreground">0.67</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">F</span>
+                        <span className="text-muted-foreground">0.00</span>
+                      </div>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => setIsDialogOpen(true)}
+                className="bg-transparent border-transparent hover:bg-gray-100 dark:bg-transparent dark:border-transparent dark:hover:bg-gray-700"
+              >
+                Add Semester
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -388,41 +470,6 @@ export default function GradesPage() {
             )}
           </Droppable>
         </DragDropContext>
-        
-        {/* Grade Scale Reference */}
-        <Collapsible
-          open={isGradeScaleOpen}
-          onOpenChange={setIsGradeScaleOpen}
-          className="mt-6 mb-6 bg-card rounded-lg p-2 border-none max-w-md mx-auto"
-        >
-          <CollapsibleTrigger className="w-full py-1 flex justify-center items-center text-sm text-muted-foreground">
-            {isGradeScaleOpen ? "Hide Grade Scale" : "Show Grade Scale"}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="grid grid-cols-4 gap-x-4 text-xs">
-              <div className="space-y-1">
-                <div>A = 4.0</div>
-                <div>A- = 3.67</div>
-              </div>
-              <div className="space-y-1">
-                <div>B+ = 3.33</div>
-                <div>B = 3.0</div>
-                <div>B- = 2.67</div>
-              </div>
-              <div className="space-y-1">
-                <div>C+ = 2.33</div>
-                <div>C = 2.0</div>
-                <div>C- = 1.67</div>
-              </div>
-              <div className="space-y-1">
-                <div>D+ = 1.33</div>
-                <div>D = 1.0</div>
-                <div>D- = 0.67</div>
-                <div>F = 0.0</div>
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
         
         {/* GPA Visualization Dashboard */}
         {semesters.length > 0 && (
@@ -484,7 +531,7 @@ export default function GradesPage() {
 
       {/* Add Course Dialog */}
       <Dialog open={isAddCourseDialogOpen} onOpenChange={setIsAddCourseDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Add Course</DialogTitle>
             <DialogDescription>

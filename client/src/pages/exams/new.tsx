@@ -234,6 +234,7 @@ export default function ExamsNewPage() {
                 }
                 setShowExamEntryForm(prev => !prev);
               }}
+              className="bg-white border-white hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-800 dark:hover:bg-gray-700"
             >
               {showExamEntryForm ? 'Cancel Exam' : 'Add Exam'}
             </Button>

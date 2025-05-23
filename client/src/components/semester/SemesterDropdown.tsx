@@ -1,4 +1,4 @@
-import React, { useCallback, memo, useState } from "react";
+import React, { useCallback, memo, useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Editable, EditableSpan } from "@/components/ui/inline-edit";
 import { Semester } from "@/utils/parseCourseData";
@@ -10,6 +10,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
+import { motion, AnimatePresence } from "framer-motion";
 
 export interface SemesterDropdownProps {
   semester: Semester;
@@ -54,6 +55,7 @@ const SemesterDropdown: React.FC<SemesterDropdownProps> = ({
   onRemoveCourse,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   
   const handleStartEditingSemesterName = useCallback(() => {
     onStartEditingSemesterName(semester.id, semester.name);
@@ -68,8 +70,29 @@ const SemesterDropdown: React.FC<SemesterDropdownProps> = ({
   }, [onAddCourse, semester.id]);
 
   const toggleDropdown = useCallback(() => {
+    // Check if we're at the bottom of the page before opening
+    const isAtBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10;
+    
+    if (isAtBottom) {
+      // If at bottom, add padding to the bottom of the document to prevent scroll up
+      const padding = document.createElement('div');
+      padding.style.height = '100vh';
+      padding.id = 'temp-padding';
+      document.body.appendChild(padding);
+    }
+    
     setIsOpen(prev => !prev);
   }, []);
+
+  // Clean up padding when closing
+  useEffect(() => {
+    if (!isOpen) {
+      const padding = document.getElementById('temp-padding');
+      if (padding) {
+        padding.remove();
+      }
+    }
+  }, [isOpen]);
 
   return (
     <Draggable draggableId={semester.id} index={index}>
@@ -129,19 +152,33 @@ const SemesterDropdown: React.FC<SemesterDropdownProps> = ({
                 </div>
                 
                 {/* Content */}
-                {isOpen && (
-                  <div className="p-4 border-t border-t-border/50">
-                    <CourseTable
-                      semesterId={semester.id}
-                      courses={semester.courses}
-                      editing={editing}
-                      onStartEditing={onStartEditingCourse}
-                      onSaveEditing={onSaveEditedCourse}
-                      onAddCourse={onAddCourse}
-                      onRemoveCourse={onRemoveCourse}
-                    />
-                  </div>
-                )}
+                <AnimatePresence>
+                  {isOpen && (
+                    <motion.div
+                      ref={contentRef}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ 
+                        duration: 0.2,
+                        ease: "easeInOut"
+                      }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-4 border-t border-t-border/50 bg-card">
+                        <CourseTable
+                          semesterId={semester.id}
+                          courses={semester.courses}
+                          editing={editing}
+                          onStartEditing={onStartEditingCourse}
+                          onSaveEditing={onSaveEditedCourse}
+                          onAddCourse={onAddCourse}
+                          onRemoveCourse={onRemoveCourse}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>

@@ -96,15 +96,35 @@ export default function Header() {
         <nav className="hidden md:flex gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="flex items-center gap-1">
+              <Button variant="header" size="sm" className="flex items-center gap-1 transition-all duration-300 hover:scale-105 hover:bg-accent/20 hover:text-accent-foreground">
                 <GraduationCap className="h-4 w-4" />
                 Classes
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuItem asChild>
-                <Link href="/course">
+                <Link href="/course" className="flex items-center gap-2">
+                  <GraduationCap className="h-4 w-4" />
                   {courseName}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/textbook" className="flex items-center gap-2">
+                  <Book className="h-4 w-4" />
+                  Textbook
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/grades" className="flex items-center gap-2">
+                  <BarChart className="h-4 w-4" />
+                  Grades
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/exams" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Exams
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -115,9 +135,9 @@ export default function Header() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button 
-                  variant="secondary" 
+                  variant="header" 
                   size="sm" 
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 transition-all duration-300 hover:scale-105 hover:bg-accent/20 hover:text-accent-foreground"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     navigate("/books/new");
@@ -173,13 +193,13 @@ export default function Header() {
             </DropdownMenu>
           </div>
           
-          <Button asChild variant="secondary" size="sm" className="flex items-center gap-1">
+          <Button asChild variant="header" size="sm" className="flex items-center gap-1 transition-all duration-300 hover:scale-105 hover:bg-accent/20 hover:text-accent-foreground">
             <Link href="/grades">
               <BarChart className="h-4 w-4" />
               Grades & Forecasting
             </Link>
           </Button>
-          <Button asChild variant="secondary" size="sm" className="flex items-center gap-1">
+          <Button asChild variant="header" size="sm" className="flex items-center gap-1 transition-all duration-300 hover:scale-105 hover:bg-accent/20 hover:text-accent-foreground">
             <Link href="/exams">
               <FileText className="h-4 w-4" />
               Exams

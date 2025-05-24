@@ -29,24 +29,14 @@ function getMonthDays(year: number, month: number) {
   const firstDayOfWeek = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
   const totalDays = lastDay.getDate();
   
-  // Calculate total slots needed (including empty slots at start)
-  const totalSlots = firstDayOfWeek + totalDays;
-  
-  // Calculate exact number of weeks needed (round up to nearest week)
-  const weeksNeeded = Math.ceil(totalSlots / 7);
-  const totalSlotsNeeded = weeksNeeded * 7;
-  
   // Create array with empty slots for days before the first of the month
   const emptySlots = Array(firstDayOfWeek).fill(null);
   
   // Create array with actual days
   const monthDays = Array.from({ length: totalDays }, (_, i) => new Date(year, month, i + 1));
   
-  // Combine empty slots with actual days and add any remaining empty slots to complete the last week
-  const allDays = [...emptySlots, ...monthDays];
-  const remainingSlots = totalSlotsNeeded - allDays.length;
-  
-  return [...allDays, ...Array(remainingSlots).fill(null)];
+  // Return only the necessary slots - no padding to match other months
+  return [...emptySlots, ...monthDays];
 }
 
 const GREEN = "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900";
@@ -76,7 +66,7 @@ const AdaptiveHeight: KeenSliderPlugin = (slider: KeenSliderInstance) => {
   window.addEventListener("resize", resize);
 };
 
-// Add CSS for smooth height transitions
+// CSS for smooth height transitions
 const sliderStyles = `
   .keen-slider {
     transition: height .35s cubic-bezier(.4,0,.2,1);
@@ -99,7 +89,6 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
       }
       map.get(key)!.exams.push(exam);
     });
-    // Sort by date
     return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [exams]);
 
@@ -160,7 +149,36 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
   const showYear = years.length > 1;
   const getMonthName = (month: Date) => month.toLocaleString("default", { month: "long" }) + (showYear ? ` ${month.getFullYear()}` : "");
 
-  // --- RENDER ---
+  // Render a single day cell
+  const renderDayCell = (day: Date | null, index: number, keyPrefix: string) => {
+    if (!day) {
+      return (
+        <div
+          key={`${keyPrefix}-empty-${index}`}
+          className="aspect-square"
+        />
+      );
+    }
+    
+    const dateStr = day.toISOString().slice(0, 10);
+    const exams = examDaysMap.get(dateStr);
+    const hasExam = !!exams;
+    const isCompleted = hasExam && exams.some(e => e.completed);
+    const color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
+    const hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
+    
+    return (
+      <div
+        key={`${keyPrefix}-${dateStr}`}
+        className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer text-foreground`}
+        title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
+        tabIndex={0}
+      >
+        {day.getDate()}
+      </div>
+    );
+  };
+
   return (
     <div className="w-full mt-12">
       <style>{sliderStyles}</style>
@@ -197,35 +215,8 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                       <div className={MONTH_HEADING}>
                         {getMonthName(month)}
                       </div>
-                      <div className="grid grid-cols-7 gap-1 w-full auto-rows-min">
-                        {days.map((day, index) => {
-                          if (!day) {
-                            return (
-                              <div
-                                key={`empty-${index}`}
-                                className="aspect-square"
-                              />
-                            );
-                          }
-                          
-                          const dateStr = day.toISOString().slice(0, 10);
-                          const exams = examDaysMap.get(dateStr);
-                          const hasExam = !!exams;
-                          const isCompleted = hasExam && exams.some(e => e.completed);
-                          let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
-                          let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
-                          
-                          return (
-                            <div
-                              key={dateStr}
-                              className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer text-foreground`}
-                              title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
-                              tabIndex={0}
-                            >
-                              {day.getDate()}
-                            </div>
-                          );
-                        })}
+                      <div className="grid grid-cols-7 gap-1 w-full">
+                        {days.map((day, index) => renderDayCell(day, index, `overview-${getMonthKey(month)}`))}
                       </div>
                     </motion.div>
                   );
@@ -273,35 +264,8 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                         ))}
                       </div>
                       
-                      <div className="grid grid-cols-7 gap-1 w-full auto-rows-min">
-                        {days.map((day, index) => {
-                          if (!day) {
-                            return (
-                              <div
-                                key={`empty-${index}`}
-                                className="aspect-square"
-                              />
-                            );
-                          }
-                          
-                          const dateStr = day.toISOString().slice(0, 10);
-                          const exams = examDaysMap.get(dateStr);
-                          const hasExam = !!exams;
-                          const isCompleted = hasExam && exams.some(e => e.completed);
-                          let color = hasExam ? (isCompleted ? GREEN : RED) : "border-transparent";
-                          let hover = hasExam ? (isCompleted ? GREEN_HOVER : RED_HOVER) : HOVER;
-                          
-                          return (
-                            <div
-                              key={dateStr}
-                              className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium border transition-colors duration-200 ${color} ${hover} cursor-pointer text-foreground`}
-                              title={hasExam ? exams?.map(e => e.examName).join(", ") : undefined}
-                              tabIndex={0}
-                            >
-                              {day.getDate()}
-                            </div>
-                          );
-                        })}
+                      <div className="grid grid-cols-7 gap-1 w-full">
+                        {days.map((day, index) => renderDayCell(day, index, `single-${getMonthKey(month)}`))}
                       </div>
                     </div>
                   );
@@ -309,7 +273,8 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
               </div>
               {allMonths.length > 0 && (
                 <>
-                  <div className="absolute left-0 top-0 bottom-0 w-1/6 z-10 pointer-events-none"> {/* Hover area for left arrow */}
+                  {/* Left Hover Area & Arrow */}
+                  <div className="absolute left-0 top-0 bottom-0 w-1/6 z-10 pointer-events-none">
                     <button
                       onClick={() => {
                         if (!instanceRef.current || allMonths.length === 0) return;
@@ -324,7 +289,7 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
                   </div>
 
                   {/* Right Hover Area & Arrow */}
-                  <div className="absolute right-0 top-0 bottom-0 w-1/6 z-10 pointer-events-none"> {/* Hover area for right arrow */}
+                  <div className="absolute right-0 top-0 bottom-0 w-1/6 z-10 pointer-events-none">
                     <button
                       onClick={() => {
                         if (!instanceRef.current || allMonths.length === 0) return;
@@ -345,4 +310,4 @@ export const ExamCalendarView: React.FC<ExamCalendarViewProps> = ({ exams }) => 
       </AnimatePresence>
     </div>
   );
-}; 
+};

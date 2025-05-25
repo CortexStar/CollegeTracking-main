@@ -23,6 +23,80 @@ export interface Semester {
   totalCredits: number; // sum of all course credits
   totalGradePoints: number; // sum of all course grade points
   gpa: number; // calculated GPA for the semester
+  includeInOverallGPA: boolean;
+}
+
+/**
+ * Parser for UF "class-card" schedules, e.g.
+ *   FIN3403 – Business Finance
+ *   Class #12809
+ *   …
+ *   Credits
+ *   4
+ *
+ * Works equally well when "Credits 4" appears on the same line.
+ * Missing grades are recorded as `"IP"` (in-progress) so the
+ * existing GPA logic still works and gradePoints=>0.
+ */
+function parseUfClassCards(rawText: string): Course[] {
+  const lines = rawText.split('\n').map(l => l.trim());
+  const headerRx   = /^([A-Z]{3,4}\d{4})\s*-\s*(.+)$/;          // FIN3403 - Business Finance
+  const classNoRx  = /^Class\s+#?(\d+)/i;                       // Class #12809
+  const creditsLbl = /^Credits?(\s*[:\-]?\s*(\d+(\.\d{1,2})?))?$/i; // "Credits" *or* "Credits 4"
+  const creditNum  = /^\d+(\.\d{1,2})?$/;
+
+  const courses: Course[] = [];
+  let c: Partial<Course> = {};
+  let expectCreditLine = false;
+
+  for (const line of lines) {
+    // ── New course header ────────────────────────────────
+    const h = headerRx.exec(line);
+    if (h) {
+      // finalise previous
+      if (isValidCourse(c)) {
+        c.gradePoints = calculateGradePoints(c.credits!, c.grade!);
+        c._uid = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        courses.push(c as Course);
+      }
+      c = { id: h[1], title: h[2], grade: 'IP' }; // placeholder grade
+      expectCreditLine = false;
+      continue;
+    }
+
+    // ── Class number ─────────────────────────────────────
+    if (!c.classNumber && c.id) {
+      const m = classNoRx.exec(line);
+      if (m) { c.classNumber = m[1]; continue; }
+    }
+
+    // ── Credits label / inline credits ───────────────────
+    if (c.id && creditsLbl.test(line)) {
+      const m = creditsLbl.exec(line);
+      if (m && m[2]) {            // inline "Credits 3"
+        c.credits = parseFloat(m[2]);
+        expectCreditLine = false;
+      } else {
+        expectCreditLine = true;  // next non‑blank line holds the number
+      }
+      continue;
+    }
+
+    // separate line containing only the credit number
+    if (expectCreditLine && creditNum.test(line)) {
+      c.credits = parseFloat(line);
+      expectCreditLine = false;
+      continue;
+    }
+  }
+
+  // ── push the last course (if complete) ─────────────────
+  if (isValidCourse(c)) {
+    c.gradePoints = calculateGradePoints(c.credits!, c.grade!);
+    c._uid = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    courses.push(c as Course);
+  }
+  return courses;
 }
 
 /**
@@ -33,13 +107,15 @@ export interface Semester {
  * @returns Array of Course objects
  */
 export function parseCourseData(rawText: string): Course[] {
-  // First try the enhanced transcript parser
-  const parsedTranscript = parseTranscriptText(rawText);
-  if (parsedTranscript.length > 0) {
-    return parsedTranscript;
-  }
-  
-  // If the enhanced parser didn't find anything, use the simple parser
+  // 1 – transcript style
+  const transcript = parseTranscriptText(rawText);
+  if (transcript.length) return transcript;
+
+  // 2 – UF class-card style
+  const ufCards = parseUfClassCards(rawText);
+  if (ufCards.length) return ufCards;
+
+  // 3 – simple four-line blocks
   return parseSimpleFormat(rawText);
 }
 

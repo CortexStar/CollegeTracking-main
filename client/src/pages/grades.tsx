@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -7,8 +7,8 @@ import { organizeSemesters } from "@/utils/organizeSemesters";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { createToastHelpers } from "@/utils/toast-helpers";
-import { parseCourseData, makeBlankCourse, Semester } from "@/utils/parseCourseData";
-import { calculateSemesterTotals, calculateGradePoints } from "@/utils/grade-utils";
+import { parseCourseData, makeBlankCourse, Semester, Course } from "@/utils/parseCourseData";
+import { calculateSemesterTotals, calculateGradePoints, isInProgressGrade } from "@/utils/grade-utils";
 import { DragDropContext, Droppable, DropResult } from "@hello-pangea/dnd";
 import SemesterDropdown from "@/components/semester/SemesterDropdown";
 import OverviewStats from "@/components/semester/OverviewStats";
@@ -61,17 +61,51 @@ export default function GradesPage() {
   const { toast } = useToast();
   const { toastSuccess, toastError } = createToastHelpers({ toast });
 
+  // Effect to migrate/re-process semesters from local storage on initial load
+  useEffect(() => {
+    const needsMigration = semesters.some(
+      (semester) => typeof semester.includeInOverallGPA === 'undefined'
+    );
+
+    if (semesters.length > 0 && needsMigration) {
+      console.log("Running migration for semesters from local storage...");
+      const migratedSemesters = semesters.map((semester) => {
+        // Ensure all courses have gradePoints recalculated if they are missing or based on old logic
+        const updatedCourses = semester.courses.map(course => ({
+          ...course,
+          gradePoints: calculateGradePoints(course.credits, course.grade),
+        }));
+        
+        const { totalCredits, totalGradePoints, gpa, includeInOverallGPA } =
+          calculateSemesterTotals(updatedCourses);
+        return {
+          ...semester,
+          courses: updatedCourses,
+          totalCredits,
+          totalGradePoints,
+          gpa,
+          includeInOverallGPA,
+        };
+      });
+      setSemesters(migratedSemesters);
+      console.log("Semester migration complete.");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
+
   // Calculate overall stats with useMemo to avoid recalculating on every render
   const overallStats = useMemo(() => {
-    return semesters.reduce(
-      (stats, semester) => {
-        return {
-          totalCredits: stats.totalCredits + semester.totalCredits,
-          totalGradePoints: stats.totalGradePoints + semester.totalGradePoints,
-        };
-      },
-      { totalCredits: 0, totalGradePoints: 0 }
-    );
+    return semesters
+      .filter(semester => semester.includeInOverallGPA)
+      .reduce(
+        (stats, semester) => {
+          return {
+            totalCredits: stats.totalCredits + semester.totalCredits,
+            totalGradePoints: stats.totalGradePoints + semester.totalGradePoints,
+          };
+        },
+        { totalCredits: 0, totalGradePoints: 0 }
+      );
   }, [semesters]);
 
   // Calculate overall GPA 
@@ -102,19 +136,28 @@ export default function GradesPage() {
     setSemesters(reorderedSemesters);
   }, [semesters, setSemesters]);
 
+  // Start editing a semester name
+  const startEditingSemesterName = useCallback((id: string, currentName: string) => {
+    setEditingSemesterId(id);
+    setEditedSemesterName(currentName);
+  }, []);
+
   // Add a new semester
   const addSemester = useCallback(() => {
     // If no courses data is entered, create empty semester
     if (!rawCourseData.trim()) {
       const newSemesterId = Date.now().toString();
 
+      const { totalCredits, totalGradePoints, gpa, includeInOverallGPA } = calculateSemesterTotals([]);
+
       const newSemester: Semester = {
         id: newSemesterId,
         name: newSemesterName || "New Semester",
         courses: [],
-        totalCredits: 0,
-        totalGradePoints: 0,
-        gpa: 0,
+        totalCredits,
+        totalGradePoints,
+        gpa,
+        includeInOverallGPA,
       };
 
       setSemesters((prev) => [...prev, newSemester]);
@@ -139,7 +182,7 @@ export default function GradesPage() {
     }
 
     // Calculate semester totals
-    const { totalCredits, totalGradePoints, gpa } = calculateSemesterTotals(courses);
+    const { totalCredits, totalGradePoints, gpa, includeInOverallGPA } = calculateSemesterTotals(courses);
 
     const newSemester: Semester = {
       id: Date.now().toString(),
@@ -148,13 +191,14 @@ export default function GradesPage() {
       totalCredits,
       totalGradePoints,
       gpa,
+      includeInOverallGPA,
     };
 
     setSemesters((prev) => [...prev, newSemester]);
     setNewSemesterName("");
     setRawCourseData("");
     setIsDialogOpen(false);
-  }, [newSemesterName, rawCourseData, setSemesters, toastError]);
+  }, [newSemesterName, rawCourseData, setSemesters, toastError, startEditingSemesterName]);
 
   // Add course to existing semester
   const addCourseToSemester = useCallback(() => {
@@ -229,12 +273,6 @@ export default function GradesPage() {
     );
   }, [setSemesters]);
 
-  // Start editing a semester name
-  const startEditingSemesterName = useCallback((id: string, currentName: string) => {
-    setEditingSemesterId(id);
-    setEditedSemesterName(currentName);
-  }, []);
-
   // Save edited semester name
   const saveEditedSemesterName = useCallback((newName?: string) => {
     if (!editingSemesterId) return;
@@ -253,23 +291,22 @@ export default function GradesPage() {
 
   // Start editing a course field
   const startEditingCourse = useCallback(
-    (semesterId: string, courseIndex: number, field: "id" | "title" | "grade" | "credits", currentValue: string) => {
-      setEditingCourse({
-        semesterId,
-        courseIndex,
-        field,
-        value: currentValue,
-      });
+    (
+      semesterId: string,
+      courseIndex: number,
+      field: "id" | "title" | "grade" | "credits",
+      value: string
+    ) => {
+      setEditingCourse({ semesterId, courseIndex, field, value });
     },
     []
   );
 
-  // Save edited course field
-  const saveEditedCourse = useCallback((override?: string) => {
+  const saveEditedCourse = useCallback((newValue?: string) => {
     if (!editingCourse) return;
 
     const { semesterId, courseIndex, field } = editingCourse;
-    const value = override ?? editingCourse.value;
+    const value = newValue ?? editingCourse.value;
 
     // Special validation for credits (must be a number)
     if (field === "credits") {
@@ -280,31 +317,27 @@ export default function GradesPage() {
       }
     }
 
-    setSemesters((prev) => {
-      return prev.map((semester) => {
+    setSemesters((prevSemesters) =>
+      prevSemesters.map((semester) => {
         if (semester.id === semesterId) {
-          const updatedCourses = [...semester.courses];
-          const course = { ...updatedCourses[courseIndex] };
+          const updatedCourses = semester.courses.map((course, index) => {
+            if (index === courseIndex) {
+              const newCourse: Course = { ...course, [field]: value };
+              // If credits or grade changed, recalculate gradePoints
+              if (field === "credits" || field === "grade") {
+                const newCredits = field === "credits" ? parseFloat(value) || 0 : course.credits;
+                const newGrade = field === "grade" ? value : course.grade;
+                newCourse.credits = newCredits;
+                newCourse.gradePoints = calculateGradePoints(newCredits, newGrade);
+              }
+              return newCourse;
+            }
+            return course;
+          });
 
-          if (field === "id") {
-            course.id = value;
-          } else if (field === "title") {
-            course.title = value;
-          } else if (field === "grade") {
-            course.grade = value.toUpperCase();
-            // Recalculate grade points
-            course.gradePoints = calculateGradePoints(course.credits, course.grade);
-          } else if (field === "credits") {
-            const credits = parseFloat(value);
-            course.credits = credits;
-            // Recalculate grade points
-            course.gradePoints = calculateGradePoints(credits, course.grade);
-          }
-
-          updatedCourses[courseIndex] = course;
-
-          // Recalculate semester totals
-          const { totalCredits, totalGradePoints, gpa } = calculateSemesterTotals(updatedCourses);
+          // Recalculate semester totals with the updated courses list
+          const { totalCredits, totalGradePoints, gpa, includeInOverallGPA } =
+            calculateSemesterTotals(updatedCourses);
 
           return {
             ...semester,
@@ -312,12 +345,12 @@ export default function GradesPage() {
             totalCredits,
             totalGradePoints,
             gpa,
+            includeInOverallGPA,
           };
         }
         return semester;
-      });
-    });
-
+      })
+    );
     setEditingCourse(null);
   }, [editingCourse, setSemesters, toastError]);
 

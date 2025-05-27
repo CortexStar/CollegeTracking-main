@@ -5,7 +5,8 @@ import { List, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Worker source (essential for pdfjs-dist)
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
+// Use a locally hosted worker file for reliability
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'; // Assuming it's copied to client/public/
 
 interface TocItem {
   title: string;
@@ -101,7 +102,7 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
         >
           {hasChildren && (
             <Button
-              size="icon-xs" // Smaller button for expand/collapse
+              size="icon"
               variant="ghost"
               className="h-5 w-5 p-0 shrink-0"
               onClick={(e) => {

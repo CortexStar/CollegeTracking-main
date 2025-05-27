@@ -58,7 +58,7 @@ export function BookDropdown() {
           Books
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="start" className="w-64">
         {loading ? (
           <DropdownMenuItem disabled>
             Loading books...

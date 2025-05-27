@@ -71,32 +71,28 @@ export default function BookViewerPage() {
   const pdfUrl = useMemo(() => {
     if (!book) return null;
 
-    // Prioritize blob URLs (typically from MemoryStorageAdapter for local files)
-    if (book.url && book.url.startsWith('blob:')) {
-      return book.url;
-    }
-
-    // Then, try data URIs (from MemoryStorageAdapter or server-provided base64)
-    if (book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')) {
-      return book.pdfData;
-    }
-
-    // Then, any other URL from book.url (typically a server-hosted file URL)
-    // This could also be a non-prefixed base64 string if the server sends it in 'url'
-    // or if pdfData was non-prefixed base64 (though MemoryAdapter prefixes it).
+    // The book.url should now be directly usable if coming from the server
+    // (e.g., /api/files/books/2024/05/some-uuid-file.pdf)
     if (book.url) {
       return book.url;
     }
+
+    // Fallbacks for MemoryStorageAdapter (local data, e.g., during upload before server confirm or if server is down)
+    if (book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')) {
+      return book.pdfData; // Data URI
+    }
     
-    // Fallback for non-prefixed base64 in pdfData, though less ideal.
-    // It's better if pdfData is always a full data URI if it's base64.
-    // However, the original logic was `if (book.pdfData) return book.pdfData;` so this maintains some compatibility
-    // if book.pdfData was, for instance, a direct URL to a PDF from a server.
+    // If book.pdfData exists but wasn't a data URI (less common for MemoryAdapter now, but for safety)
+    // This was more relevant for very old versions. Modern MemoryAdapter creates blob/data URIs.
     if (book.pdfData) { 
-        return book.pdfData;
+      // Potentially try to create a blob URL here if it's raw base64, but
+      // MemoryStorageAdapter should ideally already provide a usable `url` (blob or data URI)
+      // or `pdfData` as a data URI.
+      console.warn("Book has pdfData but no direct url or data URI format, PDF might not display from this source.");
+      return null; // Or attempt to make blob if sure it's base64
     }
 
-    return null; // If no suitable URL or data URI is found
+    return null; // No suitable URL or data found
   }, [book]);
 
   const handleTitleEdit = () => {

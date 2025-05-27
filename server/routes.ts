@@ -1,63 +1,57 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import { storage } from "./storage";
 import multer from "multer";
 import { setupWebSocketServer } from "./websocket";
 import express from "express";
+import fs from "fs/promises";
+import { fileUploadManager } from "./fileUploadManager";
+import { env } from "../shared/env";
 
 // Configure multer for storing uploads temporarily in memory
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // Limit file size to 50MB
+    fileSize: env.MAX_FILE_SIZE,
   },
   fileFilter: (_req, file, cb) => {
-    // Accept only PDF files
-    if (file.mimetype === "application/pdf") {
+    const allowedTypes = (env.ALLOWED_FILE_TYPES || "application/pdf").split(',');
+    if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Only PDF files are allowed"));
+      cb(new Error(`Only ${allowedTypes.join(', ')} files are allowed. Got ${file.mimetype}`));
     }
   },
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Serve static files from uploads directory
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+  const userId = "anonymous-user";
 
-  // Authentication has been permanently removed
-  // All routes operate in guest mode
-  // API routes for books
   app.get('/api/books', async (req, res) => {
     try {
-      // Always use anonymous user ID since authentication is disabled
-      const userId = "anonymous-user";
-      const books = await storage.getUserBooks(userId);
-      return res.status(200).json(books);
+      const booksMeta = await storage.getUserBooksAsMeta(userId);
+      return res.status(200).json(booksMeta);
     } catch (error) {
-      console.error('Error fetching books:', error);
-      return res.status(500).json({ error: 'Failed to fetch books' });
+      console.error('Error in GET /api/books:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      return res.status(500).json({ error: 'Failed to fetch books', details: error.message });
     }
   });
 
   app.get('/api/books/:id', async (req, res) => {
     try {
       const bookId = req.params.id;
-      const book = await storage.getBookById(bookId);
-      
-      if (!book) {
-        return res.status(404).json({ error: 'Book not found' });
+      const bookMeta = await storage.getBookByIdAsMeta(bookId, userId);
+      if (!bookMeta) {
+        return res.status(404).json({ error: 'Book not found or not active' });
       }
-      
-      return res.status(200).json(book);
+      return res.status(200).json(bookMeta);
     } catch (error) {
-      console.error('Error fetching book:', error);
-      return res.status(500).json({ error: 'Failed to fetch book' });
+      console.error(`Error in GET /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      return res.status(500).json({ error: 'Failed to fetch book', details: error.message });
     }
   });
 
-  // Upload a new book
   app.post('/api/books/upload', upload.single('pdfFile'), async (req, res) => {
     try {
       if (!req.file) {
@@ -65,94 +59,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { title, author } = req.body;
-      // Always use anonymous user ID since authentication is disabled
-      const userId = "anonymous-user";
-      
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
       
-      const bookId = await storage.saveBookFile(
+      const dbBook = await storage.saveBookFile(
         req.file.buffer,
         req.file.originalname,
+        req.file.mimetype,
         userId,
         title,
         author || ""
       );
       
-      const book = await storage.getBookById(bookId);
-      return res.status(201).json(book);
+      const bookMeta = await storage.getBookByIdAsMeta(dbBook.id, userId);
+      if (!bookMeta) {
+        throw new Error("Failed to retrieve book as BookMeta after saving.");
+      }
+      return res.status(201).json(bookMeta);
     } catch (error) {
-      console.error('Error uploading book:', error);
-      return res.status(500).json({ error: 'Failed to upload book' });
-    }
-  });
-  
-  // Serve book file by ID
-  app.get('/api/books/:id/file', async (req, res) => {
-    try {
-      const bookId = req.params.id;
-      const book = await storage.getBookById(bookId);
-      
-      if (!book) {
-        return res.status(404).json({ error: 'Book not found' });
-      }
-      
-      // Set headers for PDF file
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${book.originalName}"`);
-      
-      try {
-        // Get the file stream using the FileStore abstraction
-        const fileStream = await storage.getBookStream(book.storedName);
-        
-        // Stream the file to the client
-        fileStream.pipe(res);
-      } catch (fileError) {
-        console.error('Error getting book file stream:', fileError);
-        return res.status(404).json({ error: 'Book file not found' });
-      }
-    } catch (error) {
-      console.error('Error serving book file:', error);
-      return res.status(500).json({ error: 'Failed to serve book file' });
-    }
-  });
-  
-  // Delete a book by ID
-  app.delete('/api/books/:id', async (req, res) => {
-    try {
-      const bookId = req.params.id;
-      
-      // Don't allow deleting the built-in book
-      if (bookId === 'linear-algebra-default') {
-        return res.status(403).json({ error: 'Cannot delete built-in book' });
-      }
-      
-      const book = await storage.getBookById(bookId);
-      
-      if (!book) {
-        return res.status(404).json({ error: 'Book not found' });
-      }
-      
-      // Always use anonymous user ID since authentication is disabled
-      const userId = "anonymous-user";
-      
-      // Check if the book belongs to the current user
-      if (book.userId !== userId && book.userId !== "anonymous-user") {
-        return res.status(403).json({ error: 'Cannot delete books that belong to other users' });
-      }
-      
-      // Delete the book from the database and file storage
-      await storage.deleteBook(bookId);
-      
-      return res.status(200).json({ message: 'Book deleted successfully' });
-    } catch (error) {
-      console.error('Error deleting book:', error);
-      return res.status(500).json({ error: 'Failed to delete book' });
+      console.error('Error in POST /api/books/upload:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload book';
+      return res.status(500).json({ error: errorMessage, details: errorMessage });
     }
   });
 
-  // Explicitly serve the default PDF file (for backward compatibility)
+  app.put('/api/books/:id', async (req, res) => {
+    try {
+      const bookId = req.params.id;
+      const { title, author, metadataJson } = req.body;
+      
+      const updates: Partial<{ title: string; author: string; metadataJson: Record<string, any> }> = {};
+      if (title !== undefined) updates.title = title;
+      if (author !== undefined) updates.author = author;
+      if (metadataJson !== undefined) updates.metadataJson = metadataJson;
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No update fields provided' });
+      }
+
+      const updatedDbBook = await storage.updateBookMetadata(bookId, userId, updates);
+      if (!updatedDbBook) {
+        return res.status(404).json({ error: 'Book not found, not owned, or not active' });
+      }
+      const bookMeta = await storage.getBookByIdAsMeta(updatedDbBook.id, userId);
+      return res.status(200).json(bookMeta);
+    } catch (error) {
+      console.error(`Error in PUT /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update book';
+      return res.status(500).json({ error: errorMessage, details: errorMessage });
+    }
+  });
+  
+  app.delete('/api/books/:id', async (req, res) => {
+    try {
+      const bookId = req.params.id;
+      const success = await storage.softDeleteBook(bookId, userId);
+      if (!success) {
+        return res.status(404).json({ error: 'Book not found or not authorized for deletion' });
+      }
+      return res.status(204).send();
+    } catch (error) {
+      console.error(`Error in DELETE /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete book';
+      return res.status(500).json({ error: errorMessage, details: errorMessage });
+    }
+  });
+
+  app.get('/api/files/:filePath(*)', async (req, res) => {
+    const requestedRelativePath = req.params.filePath;
+    if (!requestedRelativePath) {
+      return res.status(400).json({ error: 'File path required' });
+    }
+
+    try {
+      const decodedPath = decodeURIComponent(requestedRelativePath);
+      const fullDiskPath = fileUploadManager.getFullDiskPath(decodedPath);
+      
+      const baseUploadDirResolved = path.resolve(env.UPLOAD_DIR || './uploads');
+      const requestedFileResolved = path.resolve(fullDiskPath);
+
+      if (!requestedFileResolved.startsWith(baseUploadDirResolved)) {
+        console.warn(`Attempt to access file outside UPLOAD_DIR: ${decodedPath}`);
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await fs.access(fullDiskPath);
+      const fileStats = await fs.stat(fullDiskPath);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', fileStats.size.toString());
+      res.setHeader('Content-Disposition', `inline; filename="${path.basename(decodedPath)}"`);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); 
+      
+      const fileStream = (await fs.open(fullDiskPath)).createReadStream();
+      fileStream.pipe(res);
+
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return res.status(404).json({ error: 'File not found' });
+      }
+      console.error(`Error serving file ${requestedRelativePath}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+      return res.status(500).json({ error: 'Internal server error while serving file' });
+    }
+  });
+
   app.get('/linear-algebra-book.pdf', (req, res) => {
     const pdfPath = path.resolve(process.cwd(), 'public', 'linear-algebra-book.pdf');
     res.sendFile(pdfPath, (err) => {
@@ -163,11 +174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Create HTTP server
   const httpServer = createServer(app);
-  
-  // Setup WebSocket server
   setupWebSocketServer(httpServer);
-
   return httpServer;
 }

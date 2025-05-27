@@ -48,7 +48,7 @@ const redisSchema = z.object({
 const appSchema = z.object({
   DATABASE_URL: z.string().url()
     .describe("PostgreSQL database connection URL"),
-  PORT: z.string().transform(val => parseInt(val, 10)).default("5000")
+  PORT: z.string().transform(val => parseInt(val, 10)).default("3001")
     .describe("Port on which the server will run"),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development')
     .describe("Node environment mode"),
@@ -56,6 +56,10 @@ const appSchema = z.object({
     .describe("Directory for local file uploads"),
   HOST: z.string().default("0.0.0.0")
     .describe("Host address to bind the server to"),
+  MAX_FILE_SIZE: z.string().transform(val => parseInt(val, 10)).default("52428800")
+    .describe("Maximum file size for uploads in bytes (defaults to 50MB)"),
+  ALLOWED_FILE_TYPES: z.string().default("application/pdf")
+    .describe("Comma-separated list of allowed MIME types for uploads (e.g., 'application/pdf,image/png')"),
 });
 
 // Combine all schemas

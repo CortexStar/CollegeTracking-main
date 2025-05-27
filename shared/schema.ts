@@ -1,7 +1,6 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -9,18 +8,23 @@ export const users = pgTable("users", {
   email: text("email"),
   name: text("name"),
   password: text("password").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const books = pgTable("books", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(), // For anonymous sessions
+  userId: text("user_id").notNull(),
   title: text("title").notNull(),
   author: text("author").default(""),
-  storedName: text("stored_name").notNull(), // The name stored on disk
-  originalName: text("original_name").notNull(), // Original file name
-  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
-  isBuiltIn: boolean("is_built_in").default(false),
+  filePath: text("file_path").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
+  mimeType: text("mime_type").default("application/pdf").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  isActive: boolean("is_active").default(true).notNull(),
+  metadataJson: jsonb("metadata_json").default({}).notNull(),
+  isBuiltIn: boolean("is_built_in").default(false).notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users)
@@ -37,8 +41,17 @@ export const insertUserSchema = createInsertSchema(users)
     password: z.string().min(6),
   });
 
-export const insertBookSchema = createInsertSchema(books).omit({
+export const insertBookSchema = createInsertSchema(books, {
+  author: z.string().optional(),
+  fileSize: z.number().positive().optional(),
+  metadataJson: z.record(z.any()).optional(),
+}).omit({
+  id: true,
   uploadedAt: true,
+  updatedAt: true,
+  isActive: true,
+  isBuiltIn: true,
+  mimeType: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

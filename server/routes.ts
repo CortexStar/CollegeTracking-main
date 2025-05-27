@@ -4,6 +4,7 @@ import path from "path";
 import { storage } from "./storage";
 import multer from "multer";
 import { setupWebSocketServer } from "./websocket";
+import express from "express";
 
 // Configure multer for storing uploads temporarily in memory
 const upload = multer({
@@ -22,6 +23,9 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Serve static files from uploads directory
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
   // Authentication has been permanently removed
   // All routes operate in guest mode
   // API routes for books

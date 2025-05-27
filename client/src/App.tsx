@@ -14,9 +14,10 @@ const Landing       = withRouteWrapper(lazy(() => import("@/pages/landing")));
 const Home          = withRouteWrapper(lazy(() => import("@/pages/home")));
 const TextbookPage  = withRouteWrapper(lazy(() => import("@/pages/textbook")));
 const GradesPage    = withRouteWrapper(lazy(() => import("@/pages/grades")));
-const BookDefault   = withRouteWrapper(lazy(() => import("@/pages/book")));
+
 const BookAddPage   = withRouteWrapper(lazy(() => import("@/pages/books/new")));
 const BookDetail    = withRouteWrapper(lazy(() => import("@/pages/books/[id]")));
+const BookLibrary   = withRouteWrapper(lazy(() => import("@/pages/books/library")));
 // Auth page completely removed
 const ExamsPage     = withRouteWrapper(lazy(() => import("@/pages/exams/index")));
 const ExamsNewPage  = withRouteWrapper(lazy(() => import("@/pages/exams/new")));
@@ -50,8 +51,9 @@ function Router() {
         <SecureRoute path="/course#:problemSet" component={Home} />
         <SecureRoute path="/textbook" component={TextbookPage} />
         <SecureRoute path="/grades" component={GradesPage} />
-        <SecureRoute path="/book" component={BookDefault} />
+
         <SecureRoute path="/books/new" component={BookAddPage} />
+        <SecureRoute path="/books/library" component={BookLibrary} />
         <SecureRoute path="/books/:id" component={BookDetail} />
         <Route path="/exams" component={ExamsPage} />
         <Route path="/exams/new" component={ExamsNewPage} />

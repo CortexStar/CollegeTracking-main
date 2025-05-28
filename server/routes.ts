@@ -164,15 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/linear-algebra-book.pdf', (req, res) => {
-    const pdfPath = path.resolve(process.cwd(), 'public', 'linear-algebra-book.pdf');
-    res.sendFile(pdfPath, (err) => {
-      if (err) {
-        console.error('Error serving PDF:', err);
-        res.status(404).send('PDF file not found');
-      }
-    });
-  });
+  
 
   const httpServer = createServer(app);
   setupWebSocketServer(httpServer);

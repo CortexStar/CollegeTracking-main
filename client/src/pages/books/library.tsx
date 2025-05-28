@@ -30,8 +30,15 @@ export default function LibraryPage() {
   useEffect(() => {
     const loadBooks = async () => {
       try {
+        console.log('Loading books...');
         const bookList = await bookStore.getBooks();
+        console.log(`Loaded ${bookList.length} books:`, bookList.map(b => ({ id: b.id, title: b.title })));
         setBooks(bookList);
+        
+        // Add debugging information
+        const status = await bookStore.checkServerStatus();
+        console.log('BookStore status:', status);
+        
       } catch (error) {
         console.error('Error loading books:', error);
         toast({

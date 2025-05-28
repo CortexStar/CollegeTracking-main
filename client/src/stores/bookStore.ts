@@ -45,12 +45,27 @@ class ServerStorageAdapter implements StorageAdapter {
         const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
         throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
       }
-      return await response.json();
+      
+      const responseData = await response.json();
+      
+      // Ensure the response contains a valid URL for the PDF
+      if (!responseData.url) {
+        console.warn('Server response missing PDF URL:', responseData);
+        throw new Error('Server response missing PDF URL');
+      }
+      
+      return responseData;
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Upload timeout - file may be too large or network issue.');
       }
+      
+      // For network errors or other fetch failures
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        throw new Error('Network error during upload - server may be unavailable');
+      }
+      
       throw error;
     }
   }
@@ -80,11 +95,14 @@ class ServerStorageAdapter implements StorageAdapter {
       const response = await fetch(`${this.baseUrl}/books`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
+        console.error('Server returned error for getBooks:', response.status, errorData);
         throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
       }
-      return await response.json();
+      const books = await response.json();
+      console.log(`Successfully fetched ${books.length} books from server`);
+      return books;
     } catch (error) {
-      console.error('Error fetching books:', error);
+      console.error('Error fetching books from server:', error);
       // Rethrow to trigger fallback logic in BookStore
       throw error; 
     }
@@ -162,6 +180,8 @@ class MemoryStorageAdapter implements StorageAdapter {
         const parsedBooks: BookMeta[] = JSON.parse(storedBooks);
         parsedBooks.forEach(book => {
           if (book.uploadDate) book.uploadDate = new Date(book.uploadDate);
+          
+          // Handle PDF data based on its storage method
           if (book.pdfData === 'STORED_SEPARATELY') {
             try {
               const pdfData = window.localStorage.getItem(`${this.localStorageKey}_pdf_${book.id}`);
@@ -171,30 +191,33 @@ class MemoryStorageAdapter implements StorageAdapter {
                   book.url = this.createBlobUrl(book.pdfData);
                 }
               } else {
+                console.warn(`PDF data for book ${book.id} not found in localStorage`);
                 book.pdfData = undefined;
               }
             } catch (pdfError) {
               console.warn(`Could not load PDF data for book ${book.id}:`, pdfError);
               book.pdfData = undefined;
             }
-          } else if (book.pdfData === 'MEMORY_ONLY' && this.memoryOnlyPdfData.has(book.id)) {
-             const memoryPdfData = this.memoryOnlyPdfData.get(book.id);
-             if(memoryPdfData){
-                book.pdfData = memoryPdfData;
-                if (book.pdfData.startsWith('data:application/pdf;base64,')) {
-                  book.url = this.createBlobUrl(book.pdfData);
-                }
-             }
+          } else if (book.pdfData === 'MEMORY_ONLY') {
+            const memoryPdfData = this.memoryOnlyPdfData.get(book.id);
+            if (memoryPdfData) {
+              book.pdfData = memoryPdfData;
+              if (book.pdfData.startsWith('data:application/pdf;base64,')) {
+                book.url = this.createBlobUrl(book.pdfData);
+              }
+            } else {
+              console.warn(`Memory-only PDF data for book ${book.id} not found`);
+              book.pdfData = undefined;
+            }
           }
-          // If book.url is missing and pdfData is present, recreate blob url. Needed after page reload for memory/LS stored items.
-          // However, with server storage, URL should come from server.
-          // This logic is more for the fallback scenario.
-          if (!book.url && book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')){
-              book.url = this.createBlobUrl(book.pdfData);
+          
+          // If book has server URL but no blob URL was created, keep the server URL
+          if (!book.url && book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')) {
+            book.url = this.createBlobUrl(book.pdfData);
           }
 
+          this.books.set(book.id, book);
         });
-        this.books = new Map(parsedBooks.map(book => [book.id, book]));
       }
     } catch (error) {
       console.error("Error loading books from localStorage:", error);
@@ -204,17 +227,22 @@ class MemoryStorageAdapter implements StorageAdapter {
 
   private saveBooksToLocalStorage(): void {
     try {
-      const booksToStoreJs = Array.from(this.books.values());
-      const booksToStore = booksToStoreJs.map(book => {
+      const booksToStore = Array.from(this.books.values()).map(book => {
+        // Create a clone to avoid modifying the original book
         const bookForStorage = { ...book };
+        
+        // Handle PDF data storage strategy based on size
         if (bookForStorage.pdfData) {
           try {
-            const dataSize = bookForStorage.pdfData.length * 2;
-            if (dataSize > 4 * 1024 * 1024) { // 4MB limit for safety
-              console.warn(`PDF data for book ${book.id} is too large for localStorage. Keeping in memory only.`);
+            const dataSize = bookForStorage.pdfData.length * 2; // Rough estimate of byte size
+            
+            // For large files, store in memory only
+            if (dataSize > 4 * 1024 * 1024) { // 4MB limit for localStorage
+              console.log(`PDF data for book ${book.id} is large, keeping in memory only.`);
               this.memoryOnlyPdfData.set(book.id, bookForStorage.pdfData);
               bookForStorage.pdfData = 'MEMORY_ONLY';
             } else {
+              // For smaller files, store in localStorage separately
               window.localStorage.setItem(`${this.localStorageKey}_pdf_${book.id}`, bookForStorage.pdfData);
               bookForStorage.pdfData = 'STORED_SEPARATELY';
             }
@@ -224,16 +252,20 @@ class MemoryStorageAdapter implements StorageAdapter {
             bookForStorage.pdfData = 'MEMORY_ONLY';
           }
         }
-        delete bookForStorage.pdfFileContent; // Remove File object
-        // Blob URLs are not persistent, so they shouldn't be saved directly.
-        // If it's a blob URL, it implies the data is in pdfData (base64) or was from a File.
-        // When loaded, if pdfData is present, a new blob URL will be created.
-        // If pdfData is not 'STORED_SEPARATELY' or 'MEMORY_ONLY', it means no local data, rely on server url.
-        if (bookForStorage.url && bookForStorage.url.startsWith('blob:') && bookForStorage.pdfData !== 'STORED_SEPARATELY' && bookForStorage.pdfData !== 'MEMORY_ONLY') {
-            bookForStorage.url = undefined; 
+        
+        // Don't store File objects
+        delete bookForStorage.pdfFileContent;
+        
+        // Don't store blob URLs directly as they're not persistent
+        if (bookForStorage.url && bookForStorage.url.startsWith('blob:')) {
+          if (bookForStorage.pdfData !== 'STORED_SEPARATELY' && bookForStorage.pdfData !== 'MEMORY_ONLY') {
+            bookForStorage.url = undefined;
+          }
         }
+        
         return bookForStorage;
       });
+      
       window.localStorage.setItem(this.localStorageKey, JSON.stringify(booksToStore));
     } catch (error) {
       console.error("Error saving books to localStorage:", error);
@@ -248,49 +280,64 @@ class MemoryStorageAdapter implements StorageAdapter {
       uploadDate: book.uploadDate || new Date(),
     };
 
+    // Convert File to base64 if provided
     if (book.pdfFileContent && !book.pdfData) {
       savedBook.pdfData = await this.fileToBase64(book.pdfFileContent);
     }
 
+    // Create blob URL if needed
     if (!savedBook.url && savedBook.pdfData && savedBook.pdfData.startsWith('data:application/pdf;base64,')) {
       savedBook.url = this.createBlobUrl(savedBook.pdfData);
     }
 
     this.books.set(id, savedBook);
     this.saveBooksToLocalStorage();
-    return savedBook;
+    return { ...savedBook }; // Return a copy to avoid reference issues
   }
 
   async getBook(id: string): Promise<BookMeta | null> {
-    this.loadBooksFromLocalStorage();
-    return this.books.get(id) || null;
+    const book = this.books.get(id);
+    if (!book) return null;
+    
+    // If we have book but no URL, try to recreate it
+    if (!book.url && book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')) {
+      book.url = this.createBlobUrl(book.pdfData);
+    }
+    
+    return { ...book }; // Return a copy to avoid reference issues
   }
 
   async getBooks(): Promise<BookMeta[]> {
-    this.loadBooksFromLocalStorage();
-    return Array.from(this.books.values());
+    // Make sure any book with data has a URL
+    this.books.forEach(book => {
+      if (!book.url && book.pdfData && book.pdfData.startsWith('data:application/pdf;base64,')) {
+        book.url = this.createBlobUrl(book.pdfData);
+      }
+    });
+    
+    return Array.from(this.books.values()).map(book => ({ ...book })); // Return copies
   }
 
   async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
-    this.loadBooksFromLocalStorage();
     const book = this.books.get(id);
     if (!book) throw new Error('Book not found for update in memory');
+    
     const updatedBook = { ...book, ...updates, id };
     
+    // Handle PDF file updates
     if (updates.pdfFileContent && updates.pdfFileContent !== book.pdfFileContent) {
-        updatedBook.pdfData = await this.fileToBase64(updates.pdfFileContent);
-        updatedBook.url = this.createBlobUrl(updatedBook.pdfData!);
+      updatedBook.pdfData = await this.fileToBase64(updates.pdfFileContent);
+      updatedBook.url = this.createBlobUrl(updatedBook.pdfData!);
     } else if (updates.pdfData && updates.pdfData !== book.pdfData && !updates.url && updates.pdfData.startsWith('data:application/pdf;base64,')) {
-        updatedBook.url = this.createBlobUrl(updates.pdfData);
+      updatedBook.url = this.createBlobUrl(updates.pdfData);
     }
 
     this.books.set(id, updatedBook);
     this.saveBooksToLocalStorage();
-    return updatedBook;
+    return { ...updatedBook }; // Return a copy
   }
 
   async deleteBook(id: string): Promise<void> {
-    this.loadBooksFromLocalStorage();
     this.books.delete(id);
     window.localStorage.removeItem(`${this.localStorageKey}_pdf_${id}`);
     this.memoryOnlyPdfData.delete(id);
@@ -307,23 +354,31 @@ class MemoryStorageAdapter implements StorageAdapter {
   }
 
   private createBlobUrl(base64OrDataUri: string): string {
-    let mimeString = 'application/pdf';
-    let byteCharacters: string;
-    if (base64OrDataUri.startsWith('data:')) {
+    try {
+      let mimeString = 'application/pdf';
+      let byteCharacters: string;
+      
+      if (base64OrDataUri.startsWith('data:')) {
         const parts = base64OrDataUri.split(',');
         const metaPart = parts[0];
         byteCharacters = atob(parts[1]);
         mimeString = metaPart.split(':')[1].split(';')[0];
-    } else {
+      } else {
         byteCharacters = atob(base64OrDataUri);
-    }
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
+      }
+      
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeString });
+      return URL.createObjectURL(blob);
+    } catch (error) {
+      console.error("Error creating blob URL:", error);
+      return "";
     }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mimeString });
-    return URL.createObjectURL(blob);
   }
 }
 
@@ -333,83 +388,152 @@ class BookStore {
   private memoryAdapter: MemoryStorageAdapter;
   private initializationPromise: Promise<void>;
   private serverAdapter: ServerStorageAdapter;
+  private initialized = false;
+  private serverAvailable = false;
 
   constructor() {
     this.memoryAdapter = new MemoryStorageAdapter();
-    this.serverAdapter = new ServerStorageAdapter(); // Create instance of ServerAdapter
-    this.adapter = this.serverAdapter; // Default to server adapter
+    this.serverAdapter = new ServerStorageAdapter();
+    this.adapter = this.serverAdapter; // Start with server adapter
     this.initializationPromise = this.testConnection();
   }
 
   private async testConnection() {
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second between retries
+
+    while (retryCount < maxRetries) {
+      try {
+        // Reduced timeout for quicker fallback, but with retries
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Connection timeout')), 3000) // 3s timeout per attempt
+        );
+        
+        await Promise.race([
+          this.serverAdapter.getBooks(), 
+          timeoutPromise
+        ]);
+        
+        console.log('Server connection successful, using ServerStorageAdapter.');
+        this.adapter = this.serverAdapter;
+        this.serverAvailable = true;
+        this.initialized = true;
+        return;
+      } catch (error) {
+        retryCount++;
+        console.warn(`Server connection attempt ${retryCount}/${maxRetries} failed:`, error.message);
+        
+        if (retryCount < maxRetries) {
+          console.log(`Retrying connection in ${retryDelay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+    }
+
+    // All retries failed, fall back to memory adapter
+    console.warn('All server connection attempts failed, using memory adapter.');
+    this.adapter = this.memoryAdapter;
+    this.serverAvailable = false;
+    this.initialized = true;
+  }
+
+  // Add method to retry server connection
+  private async retryServerConnection(): Promise<boolean> {
+    if (this.serverAvailable) return true;
+
     try {
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 5000) // 5s timeout
-      );
-      await Promise.race([
-        this.serverAdapter.getBooks(), // Test with server adapter directly
-        timeoutPromise
-      ]);
-      // console.log('Server connection successful, using ServerStorageAdapter.');
+      await this.serverAdapter.getBooks();
+      console.log('Server reconnection successful, switching back to ServerStorageAdapter.');
       this.adapter = this.serverAdapter;
+      this.serverAvailable = true;
+      return true;
     } catch (error) {
-      console.warn('Server unavailable or timed out, using memory adapter. Error:', error.message);
-      this.adapter = this.memoryAdapter;
+      console.warn('Server reconnection failed:', error.message);
+      return false;
     }
   }
 
   private async ensureInitialized() {
-    await this.initializationPromise;
+    if (!this.initialized) {
+      await this.initializationPromise;
+    }
   }
 
   async saveBook(book: BookMeta): Promise<BookMeta> {
     await this.ensureInitialized();
+    
+    // Always try server first for saves, even if we're currently on memory adapter
+    if (!this.serverAvailable) {
+      await this.retryServerConnection();
+    }
+
     try {
       const saved = await this.adapter.saveBook(book);
       this.notifyListeners();
       return saved;
     } catch (error) {
       console.warn('Primary adapter saveBook failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) { // Avoid double save if already on memory
+      if (this.adapter !== this.memoryAdapter) {
+        // Mark server as unavailable and switch to memory
+        this.serverAvailable = false;
         this.adapter = this.memoryAdapter;
-        const saved = await this.memoryAdapter.saveBook(book); // Save to memory
+        const saved = await this.memoryAdapter.saveBook(book);
         this.notifyListeners();
         return saved;
       }
-      throw error; // If memory adapter also fails or was already the adapter
+      throw error;
     }
   }
 
   async getBook(id: string): Promise<BookMeta | null> {
     await this.ensureInitialized();
+    
     try {
       return await this.adapter.getBook(id);
     } catch (error) {
       console.warn('Primary adapter getBook failed, attempting memory adapter. Error:', error.message);
       if (this.adapter !== this.memoryAdapter) {
-         this.adapter = this.memoryAdapter;
-         return await this.memoryAdapter.getBook(id);
+        this.serverAvailable = false;
+        this.adapter = this.memoryAdapter;
+        return await this.memoryAdapter.getBook(id);
       }
-      return null; // Or throw error if memory adapter was already primary
+      return null;
     }
   }
 
   async getBooks(): Promise<BookMeta[]> {
     await this.ensureInitialized();
+    
     try {
-      return await this.adapter.getBooks();
+      const books = await this.adapter.getBooks();
+      return books;
     } catch (error) {
       console.warn('Primary adapter getBooks failed, attempting memory adapter. Error:', error.message);
       if (this.adapter !== this.memoryAdapter) {
-          this.adapter = this.memoryAdapter;
-          return await this.memoryAdapter.getBooks();
+        this.serverAvailable = false;
+        this.adapter = this.memoryAdapter;
+        const fallbackBooks = await this.memoryAdapter.getBooks();
+        
+        // If we have cached books, show a message about offline mode
+        if (fallbackBooks.length > 0) {
+          console.info('Using cached books in offline mode');
+        }
+        
+        return fallbackBooks;
       }
-      return []; // Or throw error
+      return [];
     }
   }
 
   async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
     await this.ensureInitialized();
+    
+    // For updates, try to reconnect to server if not available
+    if (!this.serverAvailable) {
+      await this.retryServerConnection();
+    }
+
     try {
       const updated = await this.adapter.updateBook(id, updates);
       this.notifyListeners();
@@ -417,10 +541,11 @@ class BookStore {
     } catch (error) {
       console.warn('Primary adapter updateBook failed, attempting memory adapter. Error:', error.message);
       if (this.adapter !== this.memoryAdapter) {
-          this.adapter = this.memoryAdapter;
-          const updated = await this.memoryAdapter.updateBook(id, updates);
-          this.notifyListeners();
-          return updated;
+        this.serverAvailable = false;
+        this.adapter = this.memoryAdapter;
+        const updated = await this.memoryAdapter.updateBook(id, updates);
+        this.notifyListeners();
+        return updated;
       }
       throw error;
     }
@@ -428,12 +553,19 @@ class BookStore {
 
   async deleteBook(id: string): Promise<void> {
     await this.ensureInitialized();
+    
+    // For deletes, try to reconnect to server if not available
+    if (!this.serverAvailable) {
+      await this.retryServerConnection();
+    }
+
     try {
       await this.adapter.deleteBook(id);
       this.notifyListeners();
     } catch (error) {
       console.warn('Primary adapter deleteBook failed, attempting memory adapter. Error:', error.message);
       if (this.adapter !== this.memoryAdapter) {
+        this.serverAvailable = false;
         this.adapter = this.memoryAdapter;
         await this.memoryAdapter.deleteBook(id);
         this.notifyListeners();
@@ -451,6 +583,7 @@ class BookStore {
       pdfFileContent: file,
       originalName: file.name,
       fileSize: file.size,
+      uploadDate: new Date(),
       // url will be populated by the server response
     };
     return this.saveBook(bookData);
@@ -463,6 +596,32 @@ class BookStore {
 
   private notifyListeners(): void {
     this.listeners.forEach(listener => listener());
+  }
+
+  // Add method to manually check server availability (useful for debugging)
+  async checkServerStatus(): Promise<{ available: boolean; adapter: string; error?: string }> {
+    try {
+      await this.serverAdapter.getBooks();
+      return { 
+        available: true, 
+        adapter: this.adapter === this.serverAdapter ? 'server' : 'memory' 
+      };
+    } catch (error) {
+      return { 
+        available: false, 
+        adapter: this.adapter === this.serverAdapter ? 'server' : 'memory',
+        error: error.message 
+      };
+    }
+  }
+
+  // Method to force reinitialize connection (useful for debugging)
+  async reinitialize(): Promise<void> {
+    this.initialized = false;
+    this.serverAvailable = false;
+    this.initializationPromise = this.testConnection();
+    await this.initializationPromise;
+    this.notifyListeners();
   }
 }
 

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+console.log('[DEBUG shared/env.ts] process.env.DATABASE_URL before Zod:', process.env.DATABASE_URL);
 import { z } from 'zod';
 
 /**
@@ -70,6 +71,7 @@ const envSchema = appSchema
 
 // Parse environment variables with detailed error handling
 function parseEnv() {
+  console.log('[DEBUG shared/env.ts] process.env.DATABASE_URL in parseEnv:', process.env.DATABASE_URL);
   try {
     return envSchema.parse(process.env);
   } catch (error) {

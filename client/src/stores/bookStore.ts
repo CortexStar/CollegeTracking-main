@@ -4,7 +4,7 @@ class ServerStorageAdapter implements StorageAdapter {
   // NEXT_PUBLIC_API_URL is usually for Next.js. For Vite, use import.meta.env.VITE_API_URL or similar.
   // Assuming /api is fine for now if client and server are on the same origin during dev.
   private baseUrl = '/api'; 
-  private timeout = 30000; // Increased for file uploads
+  private timeout = 120000; // Increased to 2 minutes for large file uploads
 
   // Helper for user ID, though server uses hardcoded "anonymous-user"
   private getCurrentUserId(): string {
@@ -16,9 +16,7 @@ class ServerStorageAdapter implements StorageAdapter {
 
     if (book.pdfFileContent) {
       formData.append('pdfFile', book.pdfFileContent, book.originalName || book.pdfFileContent.name);
-    } else if (book.pdfData) { // For cases where pdfData (base64) might be used as a source
-      // This scenario is less likely with the new server setup which expects a File.
-      // However, keeping it for robustness if client ever creates BookMeta with base64 directly.
+    } else if (book.pdfData) {
       const blob = this.base64ToBlob(book.pdfData, book.originalName || 'book.pdf');
       formData.append('pdfFile', blob, book.originalName || 'book.pdf');
     } else {
@@ -33,7 +31,6 @@ class ServerStorageAdapter implements StorageAdapter {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      // Endpoint for upload is /api/books/upload
       const response = await fetch(`${this.baseUrl}/books/upload`, {
         method: 'POST',
         body: formData,
@@ -43,29 +40,31 @@ class ServerStorageAdapter implements StorageAdapter {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
+        console.error('Upload failed:', errorData);
         throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
       }
       
       const responseData = await response.json();
       
-      // Ensure the response contains a valid URL for the PDF
       if (!responseData.url) {
-        console.warn('Server response missing PDF URL:', responseData);
+        console.error('Server response missing PDF URL:', responseData);
         throw new Error('Server response missing PDF URL');
       }
       
       return responseData;
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('Upload timeout - file may be too large or network issue.');
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.error('Upload timed out after', this.timeout/1000, 'seconds');
+          throw new Error(`Upload timeout after ${this.timeout/1000} seconds - file may be too large or network issue.`);
+        }
+        if (error.message.includes('Failed to fetch')) {
+          console.error('Network error during upload:', error);
+          throw new Error('Network error during upload - server may be unavailable');
+        }
       }
-      
-      // For network errors or other fetch failures
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        throw new Error('Network error during upload - server may be unavailable');
-      }
-      
+      console.error('Unexpected error during upload:', error);
       throw error;
     }
   }
@@ -140,15 +139,20 @@ class ServerStorageAdapter implements StorageAdapter {
   }
 
   async deleteBook(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/books/${id}`, {
-      method: 'DELETE',
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}/books/${id}`, {
+        method: 'DELETE',
+      });
 
-    if (!response.ok && response.status !== 204) { // 204 is success for DELETE
-      const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
-      throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
+      if (!response.ok && response.status !== 204) {
+        const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
+        console.error('Delete failed:', errorData);
+        throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      throw error;
     }
-    // No need to return response.json() for DELETE if server sends 204
   }
 
   private base64ToBlob(base64: string, filename: string = 'file.pdf'): Blob {
@@ -386,101 +390,51 @@ class BookStore {
   private adapter: StorageAdapter;
   private listeners: Set<() => void> = new Set();
   private memoryAdapter: MemoryStorageAdapter;
-  private initializationPromise: Promise<void>;
   private serverAdapter: ServerStorageAdapter;
   private initialized = false;
   private serverAvailable = false;
+  private cachedBooks: Map<string, BookMeta> = new Map();
+  private lastFetch: number = 0;
+  private fetchInterval: number = 5000; // 5 seconds minimum between fetches
 
   constructor() {
     this.memoryAdapter = new MemoryStorageAdapter();
     this.serverAdapter = new ServerStorageAdapter();
     this.adapter = this.serverAdapter; // Start with server adapter
-    this.initializationPromise = this.testConnection();
   }
 
-  private async testConnection() {
-    let retryCount = 0;
-    const maxRetries = 3;
-    const retryDelay = 1000; // 1 second between retries
-
-    while (retryCount < maxRetries) {
-      try {
-        // Reduced timeout for quicker fallback, but with retries
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timeout')), 3000) // 3s timeout per attempt
-        );
-        
-        await Promise.race([
-          this.serverAdapter.getBooks(), 
-          timeoutPromise
-        ]);
-        
-        console.log('Server connection successful, using ServerStorageAdapter.');
-        this.adapter = this.serverAdapter;
-        this.serverAvailable = true;
-        this.initialized = true;
-        return;
-      } catch (error) {
-        retryCount++;
-        console.warn(`Server connection attempt ${retryCount}/${maxRetries} failed:`, error.message);
-        
-        if (retryCount < maxRetries) {
-          console.log(`Retrying connection in ${retryDelay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-        }
-      }
+  private async refreshBooks(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastFetch < this.fetchInterval) {
+      return; // Skip if fetched recently
     }
-
-    // All retries failed, fall back to memory adapter
-    console.warn('All server connection attempts failed, using memory adapter.');
-    this.adapter = this.memoryAdapter;
-    this.serverAvailable = false;
-    this.initialized = true;
-  }
-
-  // Add method to retry server connection
-  private async retryServerConnection(): Promise<boolean> {
-    if (this.serverAvailable) return true;
-
+    
     try {
-      await this.serverAdapter.getBooks();
-      console.log('Server reconnection successful, switching back to ServerStorageAdapter.');
-      this.adapter = this.serverAdapter;
-      this.serverAvailable = true;
-      return true;
+      const books = await this.adapter.getBooks();
+      this.cachedBooks.clear();
+      books.forEach(book => this.cachedBooks.set(book.id, book));
+      this.lastFetch = now;
+      this.notifyListeners();
     } catch (error) {
-      console.warn('Server reconnection failed:', error.message);
-      return false;
-    }
-  }
-
-  private async ensureInitialized() {
-    if (!this.initialized) {
-      await this.initializationPromise;
+      console.error('Error refreshing books:', error);
+      throw error;
     }
   }
 
   async saveBook(book: BookMeta): Promise<BookMeta> {
     await this.ensureInitialized();
-    
-    // Always try server first for saves, even if we're currently on memory adapter
-    if (!this.serverAvailable) {
-      await this.retryServerConnection();
-    }
-
     try {
-      const saved = await this.adapter.saveBook(book);
+      const savedBook = await this.adapter.saveBook(book);
+      this.cachedBooks.set(savedBook.id, savedBook);
       this.notifyListeners();
-      return saved;
+      return savedBook;
     } catch (error) {
-      console.warn('Primary adapter saveBook failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) {
-        // Mark server as unavailable and switch to memory
-        this.serverAvailable = false;
-        this.adapter = this.memoryAdapter;
-        const saved = await this.memoryAdapter.saveBook(book);
+      if (this.adapter === this.serverAdapter) {
+        console.warn('Primary adapter saveBook failed, attempting memory adapter:', error);
+        const memoryBook = await this.memoryAdapter.saveBook(book);
+        this.cachedBooks.set(memoryBook.id, memoryBook);
         this.notifyListeners();
-        return saved;
+        return memoryBook;
       }
       throw error;
     }
@@ -489,41 +443,37 @@ class BookStore {
   async getBook(id: string): Promise<BookMeta | null> {
     await this.ensureInitialized();
     
+    // Check cache first
+    const cachedBook = this.cachedBooks.get(id);
+    if (cachedBook && cachedBook.isActive !== false) {
+      return cachedBook;
+    }
+
     try {
-      return await this.adapter.getBook(id);
-    } catch (error) {
-      console.warn('Primary adapter getBook failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) {
-        this.serverAvailable = false;
-        this.adapter = this.memoryAdapter;
-        return await this.memoryAdapter.getBook(id);
+      const book = await this.adapter.getBook(id);
+      if (book) {
+        this.cachedBooks.set(id, book);
+      } else {
+        this.cachedBooks.delete(id);
       }
-      return null;
+      return book;
+    } catch (error) {
+      console.error('Error fetching book:', error);
+      throw error;
     }
   }
 
   async getBooks(): Promise<BookMeta[]> {
     await this.ensureInitialized();
     
-    try {
-      const books = await this.adapter.getBooks();
-      return books;
-    } catch (error) {
-      console.warn('Primary adapter getBooks failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) {
-        this.serverAvailable = false;
-        this.adapter = this.memoryAdapter;
-        const fallbackBooks = await this.memoryAdapter.getBooks();
-        
-        // If we have cached books, show a message about offline mode
-        if (fallbackBooks.length > 0) {
-          console.info('Using cached books in offline mode');
-        }
-        
-        return fallbackBooks;
-      }
-      return [];
+    // Return cached books if recently fetched
+    const now = Date.now();
+    if (this.cachedBooks.size > 0 && now - this.lastFetch < this.fetchInterval) {
+      return Array.from(this.cachedBooks.values()).filter(book => book.isActive !== false);
     }
+
+    await this.refreshBooks();
+    return Array.from(this.cachedBooks.values()).filter(book => book.isActive !== false);
   }
 
   async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
@@ -553,24 +503,13 @@ class BookStore {
 
   async deleteBook(id: string): Promise<void> {
     await this.ensureInitialized();
-    
-    // For deletes, try to reconnect to server if not available
-    if (!this.serverAvailable) {
-      await this.retryServerConnection();
-    }
-
     try {
       await this.adapter.deleteBook(id);
+      // Remove from cache completely instead of just marking inactive
+      this.cachedBooks.delete(id);
       this.notifyListeners();
     } catch (error) {
-      console.warn('Primary adapter deleteBook failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) {
-        this.serverAvailable = false;
-        this.adapter = this.memoryAdapter;
-        await this.memoryAdapter.deleteBook(id);
-        this.notifyListeners();
-        return;
-      }
+      console.error('Error deleting book:', error);
       throw error;
     }
   }
@@ -619,9 +558,43 @@ class BookStore {
   async reinitialize(): Promise<void> {
     this.initialized = false;
     this.serverAvailable = false;
-    this.initializationPromise = this.testConnection();
-    await this.initializationPromise;
+    this.adapter = this.serverAdapter;
+    
+    // Try to initialize with server, fallback to memory if needed
+    try {
+      await this.serverAdapter.getBooks();
+      this.serverAvailable = true;
+      this.adapter = this.serverAdapter;
+    } catch (error) {
+      console.warn('Server not available during initialization, using memory adapter:', error.message);
+      this.serverAvailable = false;
+      this.adapter = this.memoryAdapter;
+    }
+    
+    this.initialized = true;
     this.notifyListeners();
+  }
+
+  private async ensureInitialized() {
+    if (!this.initialized) {
+      await this.reinitialize();
+    }
+  }
+
+  // Add method to retry server connection
+  private async retryServerConnection(): Promise<boolean> {
+    if (this.serverAvailable) return true;
+
+    try {
+      await this.serverAdapter.getBooks();
+      console.log('Server reconnection successful, switching back to ServerStorageAdapter.');
+      this.adapter = this.serverAdapter;
+      this.serverAvailable = true;
+      return true;
+    } catch (error) {
+      console.warn('Server reconnection failed:', error.message);
+      return false;
+    }
   }
 }
 

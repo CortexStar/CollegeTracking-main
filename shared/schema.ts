@@ -1,6 +1,7 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, bigint, uuid, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { InferModel } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -18,13 +19,12 @@ export const books = pgTable("books", {
   author: text("author").default(""),
   filePath: text("file_path").notNull(),
   originalFilename: text("original_filename").notNull(),
-  fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
-  mimeType: text("mime_type").default("application/pdf").notNull(),
-  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  isActive: boolean("is_active").default(true).notNull(),
-  metadataJson: jsonb("metadata_json").default({}).notNull(),
-  isBuiltIn: boolean("is_built_in").default(false).notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: text("mime_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  isActive: boolean("is_active").default(true),
+  isBuiltIn: boolean("is_built_in").default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users)
@@ -41,21 +41,14 @@ export const insertUserSchema = createInsertSchema(users)
     password: z.string().min(6),
   });
 
-export const insertBookSchema = createInsertSchema(books, {
-  author: z.string().optional(),
-  fileSize: z.number().positive().optional(),
-  metadataJson: z.record(z.any()).optional(),
-}).omit({
-  id: true,
-  uploadedAt: true,
-  updatedAt: true,
-  isActive: true,
-  isBuiltIn: true,
-  mimeType: true,
-});
+export const insertBookSchema = createInsertSchema(books)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
-
+export type SelectUser = InferModel<typeof users, "select">;
 export type InsertBook = z.infer<typeof insertBookSchema>;
-export type Book = typeof books.$inferSelect;
+export type SelectBook = InferModel<typeof books, "select">;

@@ -12,11 +12,23 @@ import {
   ExternalLink, 
   Printer,
   ArrowLeft,
-  Loader2 
+  Loader2,
+  Link as LinkIcon,
+  Copy as CopyIcon,
+  Save as SaveIcon
 } from 'lucide-react';
 import { bookStore } from '@/stores/bookStore';
 import { BookMeta } from '@/types/book';
 import { TextbookToc } from '@/components/TextbookToc';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 export default function BookViewerPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,6 +41,8 @@ export default function BookViewerPage() {
   const [editingAuthor, setEditingAuthor] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
   const [tempAuthor, setTempAuthor] = useState('');
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [currentLink, setCurrentLink] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -67,6 +81,14 @@ export default function BookViewerPage() {
 
     return unsubscribe;
   }, [id, navigate, toast]);
+
+  useEffect(() => {
+    if (book && book.externalLink) {
+      setCurrentLink(book.externalLink);
+    } else {
+      setCurrentLink('');
+    }
+  }, [book, isLinkDialogOpen]);
 
   const pdfUrl = useMemo(() => {
     if (!book) return null;
@@ -113,10 +135,10 @@ export default function BookViewerPage() {
     try {
       await bookStore.updateBook(book.id, { title: tempTitle.trim() });
       setEditingTitle(false);
-      toast({
+      /* toast({
         title: 'Title updated',
         description: 'Book title has been updated successfully.',
-      });
+      }); */
     } catch (error) {
       toast({
         title: 'Update failed',
@@ -134,10 +156,10 @@ export default function BookViewerPage() {
         author: tempAuthor.trim() || undefined 
       });
       setEditingAuthor(false);
-      toast({
+      /* toast({
         title: 'Author updated',
         description: 'Book author has been updated successfully.',
-      });
+      }); */
     } catch (error) {
       toast({
         title: 'Update failed',
@@ -155,6 +177,44 @@ export default function BookViewerPage() {
   const handleAuthorCancel = () => {
     setEditingAuthor(false);
     setTempAuthor('');
+  };
+
+  const handleSaveLink = async () => {
+    if (!book) return;
+    try {
+      await bookStore.updateBook(book.id, { externalLink: currentLink });
+      /* toast({
+        title: 'Link saved',
+        description: 'The external link has been updated.',
+      }); */
+      setIsLinkDialogOpen(false);
+    } catch (error) {
+      console.error('Error saving link:', error);
+      toast({
+        title: 'Save failed',
+        description: 'Failed to save the external link.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!currentLink) {
+      toast({
+        title: 'Nothing to copy',
+        description: 'The link is empty.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    navigator.clipboard.writeText(currentLink)
+      .then(() => {
+        /* toast({ title: 'Copied!', description: 'Link copied to clipboard.' }); */
+      })
+      .catch(err => {
+        console.error('Failed to copy link: ', err);
+        toast({ title: 'Copy failed', description: 'Could not copy link to clipboard.', variant: 'destructive' });
+      });
   };
 
   const handleOpenFullPdf = () => {
@@ -219,7 +279,7 @@ export default function BookViewerPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
+                {/* <BookOpen className="h-5 w-5" /> */}
                 Book Details
               </CardTitle>
             </CardHeader>
@@ -238,15 +298,11 @@ export default function BookViewerPage() {
                         if (e.key === 'Enter') handleTitleSave();
                         if (e.key === 'Escape') handleTitleCancel();
                       }}
-                      className="flex-1"
+                      onBlur={handleTitleSave}
+                      className="flex-1 text-base placeholder:text-muted-foreground/60"
+                      placeholder="Enter book title"
                       autoFocus
                     />
-                    <Button size="sm" onClick={handleTitleSave}>
-                      <Check className="h-3 w-3" />
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleTitleCancel}>
-                      <X className="h-3 w-3" />
-                    </Button>
                   </div>
                 ) : (
                   <div
@@ -254,7 +310,6 @@ export default function BookViewerPage() {
                     onClick={handleTitleEdit}
                   >
                     <p className="flex-1 font-medium">{book.title}</p>
-                    <Edit2 className="h-3 w-3 text-muted-foreground" />
                   </div>
                 )}
               </div>
@@ -273,16 +328,11 @@ export default function BookViewerPage() {
                         if (e.key === 'Enter') handleAuthorSave();
                         if (e.key === 'Escape') handleAuthorCancel();
                       }}
-                      className="flex-1"
+                      onBlur={handleAuthorSave}
+                      className="flex-1 text-base placeholder:text-muted-foreground/60"
                       placeholder="Enter author name"
                       autoFocus
                     />
-                    <Button size="sm" onClick={handleAuthorSave}>
-                      <Check className="h-3 w-3" />
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleAuthorCancel}>
-                      <X className="h-3 w-3" />
-                    </Button>
                   </div>
                 ) : (
                   <div
@@ -292,21 +342,63 @@ export default function BookViewerPage() {
                     <p className="flex-1 text-muted-foreground">
                       {book.author || 'No author specified'}
                     </p>
-                    <Edit2 className="h-3 w-3 text-muted-foreground" />
                   </div>
                 )}
               </div>
 
               {/* Actions */}
               <div className="flex gap-2 pt-4">
-                <Button onClick={handleOpenFullPdf} size="sm" className="flex-1">
+                <Button onClick={handleOpenFullPdf} variant="ghost" size="sm" className="flex-1">
                   <ExternalLink className="h-3 w-3 mr-1" />
                   Full PDF
                 </Button>
-                <Button onClick={handlePrint} variant="outline" size="sm" className="flex-1">
+                <Button onClick={handlePrint} variant="ghost" size="sm" className="flex-1">
                   <Printer className="h-3 w-3 mr-1" />
                   Print
                 </Button>
+                <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="sm" className="flex-1">
+                      <LinkIcon className="h-3 w-3 mr-1" />
+                      Link
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>External Link</DialogTitle>
+                      {/* <DialogDescription>
+                        Paste and store an external link for this book. Click save when you're done.
+                      </DialogDescription> */}
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="relative">
+                        <Input
+                          id="externalLink"
+                          value={currentLink}
+                          onChange={(e) => setCurrentLink(e.target.value)}
+                          placeholder="https://example.com"
+                          className="pr-10"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
+                          onClick={handleCopyLink}
+                          title="Copy link"
+                        >
+                          <CopyIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="ghost" onClick={() => setIsLinkDialogOpen(false)}>Cancel</Button>
+                      <Button variant="ghost" onClick={handleSaveLink}>
+                        <SaveIcon className="h-4 w-4 mr-2" />
+                        Save Link
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             </CardContent>
           </Card>

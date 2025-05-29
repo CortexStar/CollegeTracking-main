@@ -10,6 +10,9 @@ export interface BookMeta {
   isBuiltIn?: boolean;
   fileSize?: number;
   uploadDate?: Date;
+  externalLink?: string;
+  isActive?: boolean;
+  updatedAt?: Date;
 }
 
 export interface StorageAdapter {

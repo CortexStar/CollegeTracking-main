@@ -2,28 +2,28 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import { storage } from "./storage";
-import multer from "multer";
+// import multer from "multer"; // Removed multer import
 import { setupWebSocketServer } from "./websocket";
 import express from "express";
 import fs from "fs/promises";
 import { fileUploadManager } from "./fileUploadManager";
 import { env } from "../shared/env";
 
-// Configure multer for storing uploads temporarily in memory
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: env.MAX_FILE_SIZE,
-  },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = (env.ALLOWED_FILE_TYPES || "application/pdf").split(',');
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Only ${allowedTypes.join(', ')} files are allowed. Got ${file.mimetype}`));
-    }
-  },
-});
+// // Configure multer for storing uploads temporarily in memory - REMOVED
+// const upload = multer({
+//   storage: multer.memoryStorage(),
+//   limits: {
+//     fileSize: env.MAX_FILE_SIZE,
+//   },
+//   fileFilter: (_req, file, cb) => {
+//     const allowedTypes = (env.ALLOWED_FILE_TYPES || "application/pdf").split(',');
+//     if (allowedTypes.includes(file.mimetype)) {
+//       cb(null, true);
+//     } else {
+//       cb(new Error(`Only ${allowedTypes.join(', ')} files are allowed. Got ${file.mimetype}`));
+//     }
+//   },
+// });
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const userId = "anonymous-user";
@@ -52,37 +52,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/books/upload', upload.single('pdfFile'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No PDF file uploaded' });
-      }
+  // // REMOVED PDF upload route
+  // app.post('/api/books/upload', upload.single('pdfFile'), async (req, res) => {
+  //   try {
+  //     if (!req.file) {
+  //       return res.status(400).json({ error: 'No PDF file uploaded' });
+  //     }
       
-      const { title, author } = req.body;
-      if (!title) {
-        return res.status(400).json({ error: 'Title is required' });
-      }
+  //     const { title, author } = req.body;
+  //     if (!title) {
+  //       return res.status(400).json({ error: 'Title is required' });
+  //     }
       
-      const dbBook = await storage.saveBookFile(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
-        userId,
-        title,
-        author || ""
-      );
+  //     const dbBook = await storage.saveBookFile(
+  //       req.file.buffer,
+  //       req.file.originalname,
+  //       req.file.mimetype,
+  //       userId,
+  //       title,
+  //       author || ""
+  //     );
       
-      const bookMeta = await storage.getBookByIdAsMeta(dbBook.id, userId);
-      if (!bookMeta) {
-        throw new Error("Failed to retrieve book as BookMeta after saving.");
-      }
-      return res.status(201).json(bookMeta);
-    } catch (error) {
-      console.error('Error in POST /api/books/upload:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
-      const errorMessage = error instanceof Error ? error.message : 'Failed to upload book';
-      return res.status(500).json({ error: errorMessage, details: errorMessage });
-    }
-  });
+  //     const bookMeta = await storage.getBookByIdAsMeta(dbBook.id, userId);
+  //     if (!bookMeta) {
+  //       throw new Error("Failed to retrieve book as BookMeta after saving.");
+  //     }
+  //     return res.status(201).json(bookMeta);
+  //   } catch (error) {
+  //     console.error('Error in POST /api/books/upload:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
+  //     const errorMessage = error instanceof Error ? error.message : 'Failed to upload book';
+  //     return res.status(500).json({ error: errorMessage, details: errorMessage });
+  //   }
+  // });
 
   app.put('/api/books/:id', async (req, res) => {
     try {
@@ -114,10 +115,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/books/:id', async (req, res) => {
     try {
       const bookId = req.params.id;
+      console.log(`Attempting to delete book ${bookId} for user ${userId}`);
+      
       const success = await storage.softDeleteBook(bookId, userId);
       if (!success) {
+        console.log(`Delete failed: book not found or unauthorized`);
         return res.status(404).json({ error: 'Book not found or not authorized for deletion' });
       }
+      
+      console.log(`Successfully deleted book ${bookId}`);
       return res.status(204).send();
     } catch (error) {
       console.error(`Error in DELETE /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');

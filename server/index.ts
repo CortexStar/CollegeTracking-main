@@ -4,6 +4,11 @@ import { setupVite, serveStatic, log } from "./vite";
 import { env } from "../shared/env";
 import { requestLogger } from "./middlewares/requestLogger";
 import { errorHandler } from "./middlewares/errorHandler";
+import booksRouter from "./routes/books";
+import dotenv from "dotenv";
+import path from "path";
+
+dotenv.config();
 
 const app = express();
 
@@ -12,8 +17,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(requestLogger); // Use morgan for request logging
 
+// Serve uploaded files
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve("uploads", "books");
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// Mount the books router
+app.use("/api/books", booksRouter);
+
 (async () => {
-  const server = await registerRoutes(app); // We need to see what `server` is here
+  const server = await registerRoutes(app);
 
   // Use our custom error handler middleware
   app.use(errorHandler);
@@ -22,7 +34,7 @@ app.use(requestLogger); // Use morgan for request logging
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (env.NODE_ENV === "development") {
-    await setupVite(app, server); // And how vite uses/modifies `server`
+    await setupVite(app, server);
   } else {
     serveStatic(app);
   }
@@ -30,12 +42,11 @@ app.use(requestLogger); // Use morgan for request logging
   // Use the validated PORT from environment
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(env.PORT, 10); // Reads from your .env (e.g., 3001)
-  server.listen({ // This `server` object is the one that needs to correctly handle listen
+  const port = parseInt(env.PORT || "3001", 10);
+  server.listen({
     port,
-    host: "127.0.0.1", // We changed this from "0.0.0.0" in previous steps
-   // reusePort: true, // <<<< TEMPORARILY COMMENT THIS OUT OR REMOVE IT
+    host: "127.0.0.1",
   }, () => {
-    log(`serving on host 127.0.0.1 port ${port}`); // Ensure this log matches the host
+    log("📚 PDF service listening at http://localhost:" + String(port));
   });
 })();

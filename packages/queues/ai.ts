@@ -47,13 +47,18 @@ export function initializeRedis() {
   if (redisClient) return redisClient;
   
   try {
-    // Create Redis connection
-    redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+    // Create Redis connection with a short timeout
+    redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+      connectTimeout: 2000, // 2 second timeout
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null // Disable retries
+    });
     
     // Set up error handler
     redisClient.on('error', (err) => {
-      aiLogger.error('Redis connection error:', err.message);
+      aiLogger.warn('Redis unavailable - AI features will be limited:', err.message);
       isRedisAvailable = false;
+      redisClient = null;
     });
     
     // Set up connect handler
@@ -64,7 +69,7 @@ export function initializeRedis() {
     
     return redisClient;
   } catch (error) {
-    aiLogger.error('Redis initialization error:', error);
+    aiLogger.warn('Redis initialization skipped - AI features will be limited:', error);
     isRedisAvailable = false;
     return null;
   }
@@ -89,10 +94,10 @@ try {
     });
     aiLogger.info('AI queue initialized successfully');
   } else {
-    aiLogger.warn('AI queue not initialized: Redis connection unavailable');
+    aiLogger.warn('AI queue not initialized: Redis unavailable - AI features will be limited');
   }
 } catch (error) {
-  aiLogger.error('Error creating AI queue:', error);
+  aiLogger.warn('Error creating AI queue - AI features will be limited:', error);
 }
 
 /**

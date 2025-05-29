@@ -34,8 +34,13 @@ export function BookDropdown() {
     loadBooks();
 
     // Listen for book changes
-    const unsubscribe = bookStore.onBooksChange(loadBooks);
-    return unsubscribe;
+    const unsubscribe = bookStore.onBooksChange(() => {
+      loadBooks();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const handleBookSelect = (bookId: string) => {

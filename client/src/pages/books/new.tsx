@@ -64,10 +64,10 @@ export default function NewBookPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!pdfFile || !title.trim()) {
+    if (!pdfFile || !title) {
       toast({
-        title: 'Missing information',
-        description: 'Please select a PDF file and enter a title.',
+        title: 'Missing required fields',
+        description: 'Please provide a PDF file and title.',
         variant: 'destructive',
       });
       return;
@@ -76,24 +76,22 @@ export default function NewBookPage() {
     setIsUploading(true);
 
     try {
-      const savedBook = await bookStore.saveBook({
-        id: '',
-        title: title.trim(),
-        author: author.trim() || undefined,
-        pdfFileContent: pdfFile,
+      const uploadedBook = await bookStore.uploadPdfFile(pdfFile, {
+        title,
+        author: author || undefined
       });
 
       toast({
-        title: 'Book uploaded successfully',
-        description: `"${savedBook.title}" has been added to your library.`,
+        title: 'Success',
+        description: 'Book uploaded successfully!',
       });
 
-      navigate(`/books/${savedBook.id}`);
+      // Navigate to the book's page
+      navigate(`/books/${uploadedBook.id}`);
     } catch (error) {
-      console.error('Upload error:', error);
       toast({
         title: 'Upload failed',
-        description: 'There was an error uploading your book. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to upload book',
         variant: 'destructive',
       });
     } finally {
@@ -198,9 +196,9 @@ export default function NewBookPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isUploading || !pdfFile || !title.trim()}>
+              <Button type="submit" disabled={isUploading || !pdfFile || !title}>
                 {isUploading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                {isUploading ? 'Uploading...' : 'Add Book'}
+                Add Book
               </Button>
             </div>
           </form>
@@ -208,4 +206,4 @@ export default function NewBookPage() {
       </Card>
     </div>
   );
-}
+} 

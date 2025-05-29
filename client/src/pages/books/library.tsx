@@ -28,12 +28,19 @@ export default function LibraryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    
     const loadBooks = async () => {
+      if (!isMounted) return;
+      
       try {
         console.log('Loading books...');
         const bookList = await bookStore.getBooks();
         console.log(`Loaded ${bookList.length} books:`, bookList.map(b => ({ id: b.id, title: b.title })));
-        setBooks(bookList);
+        
+        if (isMounted) {
+          setBooks(bookList);
+        }
         
         // Add debugging information
         const status = await bookStore.checkServerStatus();
@@ -41,21 +48,33 @@ export default function LibraryPage() {
         
       } catch (error) {
         console.error('Error loading books:', error);
-        toast({
-          title: 'Error loading library',
-          description: 'There was an error loading your books.',
-          variant: 'destructive',
-        });
+        if (isMounted) {
+          toast({
+            title: 'Error loading library',
+            description: 'There was an error loading your books.',
+            variant: 'destructive',
+          });
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     loadBooks();
 
     // Listen for book changes
-    const unsubscribe = bookStore.onBooksChange(loadBooks);
-    return unsubscribe;
+    const unsubscribe = bookStore.onBooksChange(() => {
+      if (isMounted) {
+        loadBooks();
+      }
+    });
+    
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [toast]);
 
   const filteredBooks = books.filter(book =>
@@ -63,11 +82,24 @@ export default function LibraryPage() {
     (book.author && book.author.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  const handleOpenPdf = (pdfUrl: string | undefined) => {
+    if (pdfUrl) {
+      window.open(pdfUrl, '_blank');
+    } else {
+      toast({
+        title: 'Error opening PDF',
+        description: 'The PDF URL is not available for this book.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleDeleteBook = async (id: string, title: string) => {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) {
+    if (deletingId) {
+      // Prevent multiple simultaneous deletions
       return;
     }
-
+    
     setDeletingId(id);
     try {
       await bookStore.deleteBook(id);
@@ -75,11 +107,15 @@ export default function LibraryPage() {
         title: 'Book deleted',
         description: `"${title}" has been removed from your library.`,
       });
+      
+      // Optimistically update local state to prevent UI glitches
+      setBooks(prevBooks => prevBooks.filter(book => book.id !== id));
+      
     } catch (error) {
       console.error('Error deleting book:', error);
       toast({
         title: 'Delete failed',
-        description: 'There was an error deleting the book.',
+        description: error instanceof Error ? error.message : 'There was an error deleting the book.',
         variant: 'destructive',
       });
     } finally {
@@ -125,8 +161,8 @@ export default function LibraryPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => navigate('/books/new')} className="shrink-0">
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={() => navigate('/books/new')} variant="ghost" className="shrink-0">
+          {/* <Plus className="h-4 w-4 mr-2" /> */}
           Add New Book
         </Button>
       </div>
@@ -160,8 +196,8 @@ export default function LibraryPage() {
                 <p className="text-muted-foreground mb-4">
                   Start building your collection by adding your first book
                 </p>
-                <Button onClick={() => navigate('/books/new')}>
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button onClick={() => navigate('/books/new')} variant="ghost">
+                  {/* <Plus className="h-4 w-4 mr-2" /> */}
                   Add Your First Book
                 </Button>
               </>
@@ -182,10 +218,11 @@ export default function LibraryPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => navigate(`/books/${book.id}`)}
+                      onClick={() => handleOpenPdf(book.url)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Open PDF"
                     >
-                      <Edit className="h-3 w-3" />
+                      <BookOpen className="h-3 w-3" />
                     </Button>
                     {!book.isBuiltIn && (
                       <Button
@@ -213,11 +250,6 @@ export default function LibraryPage() {
                   </div>
                 )}
                 
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-3 w-3" />
-                  <span>Added {formatDate(book.uploadDate)}</span>
-                </div>
-
                 {book.fileSize && (
                   <div className="text-sm text-muted-foreground">
                     {formatFileSize(book.fileSize)}

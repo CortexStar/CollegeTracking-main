@@ -23,52 +23,53 @@ function dbBookToBookMeta(dbBook: DbBook): BookMeta {
     url: fileUploadManager.getFileServeUrl(dbBook.filePath),
     originalName: dbBook.originalFilename,
     fileSize: dbBook.fileSize,
-    uploadDate: dbBook.uploadedAt,
+    uploadDate: dbBook.createdAt,
     isBuiltIn: dbBook.isBuiltIn,
     storedName: dbBook.filePath,
   };
 }
 
 export const storage = {
-  async saveBookFile(
-    fileBuffer: Buffer,
-    originalNameFromMulter: string,
-    mimeTypeFromMulter: string,
-    userId: string,
-    title: string,
-    author: string = "",
-  ): Promise<DbBook> {
-    const bookId = nanoid();
+  // // REMOVED saveBookFile function - no longer saves uploaded PDF files
+  // async saveBookFile(
+  //   fileBuffer: Buffer,
+  //   originalNameFromMulter: string,
+  //   mimeTypeFromMulter: string,
+  //   userId: string,
+  //   title: string,
+  //   author: string = "",
+  // ): Promise<DbBook> {
+  //   const bookId = nanoid();
 
-    // 1. Save file to disk using FileUploadManager
-    const uploadResult: UploadResult = await fileUploadManager.saveUploadedFile(
-      fileBuffer,
-      originalNameFromMulter,
-      mimeTypeFromMulter
-    );
+  //   // 1. Save file to disk using FileUploadManager
+  //   const uploadResult: UploadResult = await fileUploadManager.saveUploadedFile(
+  //     fileBuffer,
+  //     originalNameFromMulter,
+  //     mimeTypeFromMulter
+  //   );
 
-    // 2. Insert the book record into the database
-    const newBookData = {
-      id: bookId,
-      userId,
-      title,
-      author,
-      filePath: uploadResult.filePath,
-      originalFilename: uploadResult.originalFilename,
-      fileSize: uploadResult.fileSize,
-      mimeType: uploadResult.mimeType,
-    };
+  //   // 2. Insert the book record into the database
+  //   const newBookData = {
+  //     id: bookId,
+  //     userId,
+  //     title,
+  //     author,
+  //     filePath: uploadResult.filePath,
+  //     originalFilename: uploadResult.originalFilename,
+  //     fileSize: uploadResult.fileSize,
+  //     mimeType: uploadResult.mimeType,
+  //   };
 
-    const insertedBooks = await db.insert(books).values(newBookData).returning();
-    if (insertedBooks.length === 0) {
-      throw new Error("Failed to save book metadata to database after file upload.");
-    }
-    return insertedBooks[0];
-  },
+  //   const insertedBooks = await db.insert(books).values(newBookData).returning();
+  //   if (insertedBooks.length === 0) {
+  //     throw new Error("Failed to save book metadata to database after file upload.");
+  //   }
+  //   return insertedBooks[0];
+  // },
 
   async getUserBooks(userId: string): Promise<DbBook[]> {
     return await db.query.books.findMany({
-      where: and(eq(books.userId, userId), eq(books.isActive, true)),
+      where: eq(books.userId, userId),
       orderBy: (booksTable, { desc }) => [desc(booksTable.uploadedAt)],
     });
   },
@@ -125,26 +126,32 @@ export const storage = {
   },
 
   async softDeleteBook(id: string, userId: string): Promise<boolean> {
-    const book = await this.getBookById(id, userId);
-    if (!book) {
-      return false;
-    }
-
-    const result = await db.update(books)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(and(eq(books.id, id), eq(books.userId, userId)))
-      .returning({ id: books.id });
-
-    if (result.length === 0) {
-      return false;
-    }
-
     try {
-      await fileUploadManager.deleteFile(book.filePath);
-    } catch (fileError) {
-      console.error(`Error deleting physical file ${book.filePath} after soft delete:`, fileError);
+      // Since the current database doesn't have isActive field, just delete the record
+      // First check if the book exists and belongs to the user
+      const book = await db.query.books.findFirst({
+        where: and(eq(books.id, id), eq(books.userId, userId)),
+      });
+      
+      if (!book) {
+        return false;
+      }
+      
+      // Don't delete built-in books
+      if (book.isBuiltIn) {
+        return false;
+      }
+      
+      // Delete the book record
+      const result = await db.delete(books)
+        .where(and(eq(books.id, id), eq(books.userId, userId)))
+        .returning({ id: books.id });
+
+      return result.length > 0;
+    } catch (error) {
+      console.error('Error in softDeleteBook:', error);
+      return false;
     }
-    return true;
   },
 
   async storeUserPreference(userId: string, theme: string): Promise<void> {

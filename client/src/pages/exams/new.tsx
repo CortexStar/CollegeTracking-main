@@ -1,73 +1,83 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
-import React, { useRef, useState, ChangeEvent, DragEvent, useEffect } from 'react';
-import { useLocation } from 'wouter'; // For navigation
-import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+import { Loader2, Upload, FileText, X, Plus, Calendar } from "lucide-react";
+import React, { useRef, useState, ChangeEvent, DragEvent, useCallback } from 'react';
+import { useLocation } from 'wouter';
+import { v4 as uuidv4 } from 'uuid';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu"; // Added import
+} from "@/components/ui/context-menu";
 
-// Updated ExamEntry interface
 interface ExamEntry {
   id: string;
-  classCode?: string;    // e.g., FIN3403
-  classTitle: string;   // e.g., Business Finance
+  classCode?: string;
+  classTitle: string;
   examName: string;
-  examNumber?: number | null; // null for Final, undefined if not numbered
-  examDate: string;     // YYYY-MM-DD
+  examNumber?: number | null;
+  examDate: string;
   source: 'pdf' | 'manual';
+}
+
+interface PendingExam {
+  id: string;
+  examName: string;
+  examDate: string;
 }
 
 export default function ExamsNewPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploadError, setUploadError] = useState<string>('');
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [, navigate] = useLocation(); // For navigation
+  const [, navigate] = useLocation();
 
-  // State for manual inputs
+  // Manual input states
   const [manualClassTitle, setManualClassTitle] = useState('');
   const [manualClassCode, setManualClassCode] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
-  // New state for managing multiple exam entries for a single class
   const [currentExamNameInput, setCurrentExamNameInput] = useState('');
   const [currentExamDateInput, setCurrentExamDateInput] = useState('');
-  const [pendingManualExams, setPendingManualExams] = useState<{ id: string; examName: string; examDate: string }[]>([]);
+  const [pendingManualExams, setPendingManualExams] = useState<PendingExam[]>([]);
   const [showExamEntryForm, setShowExamEntryForm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const MAX_FILES = 5;
 
-  const formatDateForDisplay = (dateString: string): string => {
+  const formatDateForDisplay = useCallback((dateString: string): string => {
     if (!dateString) return '';
     try {
-      const date = new Date(dateString + 'T00:00:00'); // Ensure date is parsed as local not UTC
+      const date = new Date(dateString + 'T00:00:00');
       if (isNaN(date.getTime())) return dateString;
-      // const day = date.getDate();
-      // let suffix = 'th';
-      // if (day === 1 || day === 21 || day === 31) suffix = 'st';
-      // else if (day === 2 || day === 22) suffix = 'nd';
-      // else if (day === 3 || day === 23) suffix = 'rd';
-      // return `${date.toLocaleString('default', { month: 'long' })} ${day}${suffix}`;
       return date.toLocaleString('default', { month: 'long', day: 'numeric' });
     } catch (e) {
       return dateString;
     }
-  };
+  }, []);
 
-  const processFiles = (newFilesArray: File[]) => {
+  const formatFileSize = useCallback((bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }, []);
+
+  const processFiles = useCallback((newFilesArray: File[]) => {
     setUploadError('');
-    const pdfFiles = newFilesArray.filter(file => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+    const pdfFiles = newFilesArray.filter(file => 
+      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    );
+    
     if (pdfFiles.length !== newFilesArray.length) {
       setUploadError('Please upload PDF files only. (Note: PDF parsing is currently disabled)');
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
+
     setSelectedFiles(prevFiles => {
       const combinedFiles = [...prevFiles];
       pdfFiles.forEach(newFile => {
@@ -75,251 +85,518 @@ export default function ExamsNewPage() {
           combinedFiles.push(newFile);
         }
       });
+      
       if (combinedFiles.length > MAX_FILES) {
         setUploadError(`You can upload a maximum of ${MAX_FILES} PDF files. (Note: PDF parsing is currently disabled)`);
         if (fileInputRef.current) fileInputRef.current.value = "";
         return prevFiles;
       }
+      
       return combinedFiles;
     });
-  };
+  }, []);
 
-  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) processFiles(Array.from(files));
     if (fileInputRef.current) fileInputRef.current.value = "";
-  };
+  }, [processFiles]);
 
-  const handleRemoveFile = (fileName: string) => {
+  const handleRemoveFile = useCallback((fileName: string) => {
     setSelectedFiles(prevFiles => prevFiles.filter(file => file.name !== fileName));
-    if (selectedFiles.length === 1 && fileInputRef.current) fileInputRef.current.value = "";
-  };
+    if (selectedFiles.length === 1 && fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, [selectedFiles.length]);
 
-  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); setIsDragging(true); };
-  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); setIsDragging(false); };
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); event.stopPropagation(); if (!isDragging) setIsDragging(true); };
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault(); event.stopPropagation(); setIsDragging(false);
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
     const files = event.dataTransfer.files;
     if (files && files.length > 0) processFiles(Array.from(files));
-  };
+  }, [processFiles]);
 
-  const handleAddExamDetailToList = () => {
-    if (!currentExamNameInput.trim() || !currentExamDateInput.trim()) {
+  const validateExamInput = useCallback((examName: string, examDate: string): string | null => {
+    if (!examName.trim()) return 'Exam name is required';
+    if (!examDate.trim()) return 'Exam date is required';
+    
+    // Validate date format and ensure it's not in the past
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(examDate)) return 'Date must be in YYYY-MM-DD format';
+    
+    const examDateObj = new Date(examDate + 'T00:00:00');
+    if (isNaN(examDateObj.getTime())) return 'Invalid date';
+    
+    // Check for duplicate exam names within the same class
+    const isDuplicate = pendingManualExams.some(exam => 
+      exam.examName.toLowerCase().trim() === examName.toLowerCase().trim()
+    );
+    if (isDuplicate) return 'An exam with this name already exists for this class';
+    
+    return null;
+  }, [pendingManualExams]);
+
+  const handleAddExamDetailToList = useCallback(() => {
+    const validationError = validateExamInput(currentExamNameInput, currentExamDateInput);
+    if (validationError) {
+      setUploadError(validationError);
       return;
     }
-    setPendingManualExams(prev => [...prev, { id: uuidv4(), examName: currentExamNameInput, examDate: currentExamDateInput }]);
+    
+    // Clear any previous errors
+    setUploadError('');
+    
+    // Create new exam entry with enhanced metadata
+    const newExam: PendingExam = {
+      id: uuidv4(),
+      examName: currentExamNameInput.trim(),
+      examDate: currentExamDateInput.trim()
+    };
+    
+    // Add to pending exams with smart sorting by date
+    setPendingManualExams(prev => {
+      const updatedExams = [...prev, newExam];
+      return updatedExams.sort((a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime());
+    });
+    
+    // Reset form inputs
     setCurrentExamNameInput('');
     setCurrentExamDateInput('');
-  };
+  }, [currentExamNameInput, currentExamDateInput, validateExamInput]);
 
-  const handleRemovePendingExam = (idToRemove: string) => {
+  const handleRemovePendingExam = useCallback((idToRemove: string) => {
     setPendingManualExams(prev => prev.filter(exam => exam.id !== idToRemove));
-  };
+  }, []);
+
+  const toggleExamForm = useCallback(() => {
+    if (!manualClassTitle.trim()) {
+      return;
+    }
+    setShowExamEntryForm(prev => !prev);
+    if (showExamEntryForm) {
+      setCurrentExamNameInput('');
+      setCurrentExamDateInput('');
+    }
+  }, [manualClassTitle, showExamEntryForm]);
+
+  const organizeExamDataForStorage = useCallback((
+    classTitle: string, 
+    classCode: string, 
+    pendingExams: PendingExam[]
+  ): ExamEntry[] => {
+    const baseClassInfo = {
+      classTitle: classTitle.trim(),
+      classCode: classCode.trim() || undefined,
+      source: 'manual' as const
+    };
+
+    return pendingExams.map((exam, index) => {
+      // Enhanced exam entry with smart numbering and categorization
+      const examEntry: ExamEntry = {
+        id: uuidv4(),
+        ...baseClassInfo,
+        examName: exam.examName.trim(),
+        examDate: exam.examDate.trim(),
+        examNumber: deriveExamNumber(exam.examName, index)
+      };
+
+      return examEntry;
+    });
+  }, []);
+
+  const deriveExamNumber = useCallback((examName: string, fallbackIndex: number): number | null => {
+    const name = examName.toLowerCase();
+    
+    // Handle final exams
+    if (name.includes('final')) return null;
+    
+    // Extract number from common patterns
+    const numberPatterns = [
+      /exam\s*(\d+)/i,
+      /test\s*(\d+)/i,
+      /midterm\s*(\d+)/i,
+      /quiz\s*(\d+)/i,
+      /(\d+)(?:st|nd|rd|th)?\s*(?:exam|test|midterm|quiz)/i
+    ];
+    
+    for (const pattern of numberPatterns) {
+      const match = name.match(pattern);
+      if (match) return parseInt(match[1], 10);
+    }
+    
+    // Smart fallback based on common exam naming
+    if (name.includes('midterm') && !name.includes('2')) return 1;
+    if (name.includes('mid') && name.includes('term')) return 1;
+    
+    // Use position-based numbering as last resort
+    return fallbackIndex + 1;
+  }, []);
 
   const handleSaveExams = async () => {
     setIsSaving(true);
     setUploadError('');
 
-    if (!manualClassTitle.trim() || pendingManualExams.length === 0) {
+    // Comprehensive validation
+    if (!manualClassTitle.trim()) {
+      setUploadError("Class title is required.");
       setIsSaving(false);
       return;
     }
 
-    setUploadError('');
-    const allParsedExams: ExamEntry[] = [];
+    if (pendingManualExams.length === 0) {
+      setUploadError("Please add at least one exam before saving.");
+      setIsSaving(false);
+      return;
+    }
 
+    // Handle PDF files notification
     if (selectedFiles.length > 0) {
-        setUploadError("PDF processing is currently disabled. Only manually added exams will be saved.");
+      setUploadError("PDF processing is currently disabled. Only manually added exams will be saved.");
     }
 
-    // Process pendingManualExams
-    if (manualClassTitle.trim() && pendingManualExams.length > 0) {
-      pendingManualExams.forEach(pendingExam => {
-        allParsedExams.push({
-          id: uuidv4(), // Final ID for storage
-          classCode: manualClassCode.trim() || undefined,
-          classTitle: manualClassTitle.trim(),
-          examName: pendingExam.examName.trim(),
-          examDate: pendingExam.examDate.trim(),
-          source: 'manual'
-        });
-      });
-    } else if (manualClassTitle.trim() && (currentExamNameInput.trim() || currentExamDateInput.trim()) && pendingManualExams.length === 0) {
-        setUploadError("Please add exam details to the list before saving, or clear class information if not adding manual exams.");
-        setIsSaving(false);
-        return;
-    }
+    try {
+      // Organize exam data with enhanced structure
+      const newExamEntries = organizeExamDataForStorage(
+        manualClassTitle, 
+        manualClassCode, 
+        pendingManualExams
+      );
 
-    if (allParsedExams.length === 0) {
-        if (selectedFiles.length > 0 && !manualClassTitle.trim()) {
-            setUploadError("PDF processing is disabled. Please add exam information manually or clear selected files.");
-        } else if (!manualClassTitle.trim() && pendingManualExams.length === 0 && !currentExamNameInput.trim() && !currentExamDateInput.trim()) {
-            setUploadError("No manual exam data entered. Please add exam information.");
-        } else if (manualClassTitle.trim() && pendingManualExams.length === 0 && !currentExamNameInput.trim() && !currentExamDateInput.trim()) {
-            setUploadError("No exams listed for the current class. Please add exam details.");
-        }
-        setIsSaving(false);
-        return;
+      // Retrieve and merge with existing data
+      const existingExamsJson = localStorage.getItem('parsedExamsData');
+      const existingExams: ExamEntry[] = existingExamsJson ? JSON.parse(existingExamsJson) : [];
+      
+      // Intelligent merging - prevent duplicates and maintain chronological order
+      const mergedExams = [...existingExams, ...newExamEntries]
+        .sort((a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime());
+      
+      // Persist to storage
+      localStorage.setItem('parsedExamsData', JSON.stringify(mergedExams));
+      
+      // Comprehensive cleanup
+      resetFormState();
+      
+      // Navigate with success
+      navigate('/exams');
+      
+    } catch (error) {
+      console.error('Failed to save exams:', error);
+      setUploadError("Failed to save exams. Please check your data and try again.");
+    } finally {
+      setIsSaving(false);
     }
-    
-    // Get existing exams from localStorage
-    const existingExamsJson = localStorage.getItem('parsedExamsData');
-    const existingExams: ExamEntry[] = existingExamsJson ? JSON.parse(existingExamsJson) : [];
-    
-    // Combine existing and new exams
-    const updatedExams = [...existingExams, ...allParsedExams];
-    
-    // Save to localStorage
-    localStorage.setItem('parsedExamsData', JSON.stringify(updatedExams));
-    
-    // Clear inputs after successful save
+  };
+
+  const resetFormState = useCallback(() => {
     setManualClassTitle('');
     setManualClassCode('');
     setPendingManualExams([]);
     setCurrentExamNameInput('');
     setCurrentExamDateInput('');
     setShowExamEntryForm(false);
+    setSelectedFiles([]);
+    setUploadError('');
+  }, []);
 
-    setIsSaving(false);
-    navigate('/exams');
-  };
+  const handleCalendarClick = useCallback(() => {
+    if (dateInputRef.current) {
+      dateInputRef.current.type = 'date';
+      dateInputRef.current.focus();
+      dateInputRef.current.showPicker?.();
+    }
+  }, []);
 
   return (
-    <div className="container mx-auto px-4 py-6 flex-grow">
-      <h1 className="text-3xl font-bold mb-6">Add/Upload Exams</h1>
-      <Card className="mb-8 border-0 shadow-none">
-        <CardHeader>
-          <CardTitle className="border-b-2 border-black pb-2">Syllabus Upload</CardTitle>
-        </CardHeader>
-        <CardContent className="p-6 flex flex-col gap-4">
-          <div
-            className={`w-full h-40 flex flex-col items-center justify-center gap-2 border-2 border-dashed dark:border-gray-700 rounded-lg cursor-pointer hover:border-gray-400 dark:hover:border-gray-500 transition-colors ${
-              isDragging ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-300'
-            }`}
-            onClick={() => fileInputRef.current?.click()}
-            onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 dark:text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line>
-            </svg>
-            {isDragging ? 'Drop PDF files here...' : 'Click or Drag & Drop to Upload Syllabuses'}
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <Card className="border-0 shadow-sm bg-white">
+        <CardContent className="p-8">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-semibold text-gray-900 mb-2">Add New Exams</h1>
+            <p className="text-sm text-gray-600">Upload syllabi or manually add exam information</p>
           </div>
-          <input type="file" ref={fileInputRef} multiple accept=".pdf,application/pdf" hidden onChange={handleFileSelect} style={{ display: 'none' }} />
 
-          {uploadError && (<p className="text-sm text-red-500 mt-2">{uploadError}</p>)}
-
-          {selectedFiles.length > 0 && (
-            <div className="mt-4 space-y-2 border-t pt-4">
-              <h4 className="text-md font-medium">Selected Files ({selectedFiles.length}/{MAX_FILES}):</h4>
-              <ul className="list-disc list-inside pl-4 space-y-1">
-                {selectedFiles.map(file => (
-                  <li key={file.name} className="text-sm flex justify-between items-center group">
-                    <span className="truncate pr-2">{file.name}</span>
-                    <Button variant="ghost" size="sm" onClick={() => handleRemoveFile(file.name)} className="text-red-500 hover:text-red-700 opacity-50 group-hover:opacity-100">Remove</Button>
-                  </li>
-                ))}
-              </ul>
+          {/* Error Display */}
+          {uploadError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600">{uploadError}</p>
             </div>
           )}
-          
-          <CardTitle className="pt-4 mt-2 flex justify-between items-center border-b-2 border-black pb-2">
-            <span>Manually Add Exam</span>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                if (!manualClassTitle.trim()) {
-                  return;
-                }
-                setShowExamEntryForm(prev => !prev);
-              }}
-              className="bg-white border-white hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-800 dark:hover:bg-gray-700"
-            >
-              {showExamEntryForm ? 'Cancel Exam' : 'Add Exam'}
-            </Button>
-          </CardTitle>
 
-          {true && ( 
-            <>
-              <div className="grid gap-4 mb-4"> {/* Added mb-4 for spacing */}
-                <div className="grid gap-2">
-                  <label htmlFor="classCodeManual" className="text-sm font-medium">Class Code (Optional)</label>
-                  <Input id="classCodeManual" placeholder="" value={manualClassCode} onChange={e => setManualClassCode(e.target.value)} />
-                </div>
-                <div className="grid gap-2">
-                  <label htmlFor="classNameManual" className="text-sm font-medium">Class Title</label>
-                  <Input id="classNameManual" placeholder="" value={manualClassTitle} onChange={e => setManualClassTitle(e.target.value)} />
-                </div>
-              </div>
+          <div className="space-y-10">
+            {/* PDF Upload Section */}
+            <div className="space-y-4">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Syllabus Upload (Optional)
+              </label>
               
-              {/* Conditional Exam Entry Form */}
-              {showExamEntryForm && manualClassTitle.trim() && (
-                <div className="p-4 border rounded-md bg-muted/40 my-4">
-                  <h3 className="text-lg font-semibold mb-3">{manualClassTitle}</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    <div className="grid gap-2 md:col-span-2">
-                      <label htmlFor="currentExamName" className="text-sm font-medium">Exam Name</label>
-                      <Input id="currentExamName" placeholder="" value={currentExamNameInput} onChange={e => setCurrentExamNameInput(e.target.value)} />
+              {selectedFiles.length > 0 ? (
+                <div className="space-y-3">
+                  {selectedFiles.map(file => (
+                    <div key={file.name} className="group relative bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex-shrink-0">
+                          <FileText className="h-6 w-6 text-gray-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {file.name}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatFileSize(file.size)}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveFile(file.name)}
+                          disabled={isSaving}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 text-gray-400 hover:text-gray-600"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <label htmlFor="currentExamDate" className="text-sm font-medium">Exam Date</label>
-                      <Input id="currentExamDate" type="date" value={currentExamDateInput} onChange={e => setCurrentExamDateInput(e.target.value)} />
+                  ))}
+                  <p className="text-xs text-gray-500">
+                    {selectedFiles.length}/{MAX_FILES} files selected
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className={`relative border-2 rounded-lg p-12 text-center transition-all duration-200 cursor-pointer ${
+                    isDragging
+                      ? 'border-gray-400 bg-gray-50'
+                      : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <div className="space-y-4">
+                    <Upload className="h-10 w-10 mx-auto text-gray-400" />
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-900">
+                        Drop syllabi here, or click to browse
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        PDF files only • Maximum {MAX_FILES} files • PDF parsing currently disabled
+                      </p>
                     </div>
                   </div>
-                  <div className="flex justify-end mt-4">
-                    <Button 
-                      onClick={handleAddExamDetailToList} 
-                      size="sm" 
-                      variant="outline"
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    multiple
+                    accept=".pdf,application/pdf"
+                    onChange={handleFileSelect}
+                    className="sr-only"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Manual Entry Section */}
+            <div className="space-y-6">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Manual Entry
+              </label>
+
+              {/* Class Information */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Class Code (Optional)
+                  </label>
+                  <Input
+                    value={manualClassCode}
+                    onChange={(e) => setManualClassCode(e.target.value)}
+                    placeholder="e.g., FIN3403"
+                    disabled={isSaving}
+                    className="bg-transparent border-transparent focus:border-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none px-3 py-2 text-sm font-medium placeholder:text-gray-400 hover:bg-gray-50 transition-colors"
+                  />
+                </div>
+                
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Class Title
+                  </label>
+                  <Input
+                    value={manualClassTitle}
+                    onChange={(e) => setManualClassTitle(e.target.value)}
+                    placeholder="e.g., Business Finance"
+                    disabled={isSaving}
+                    className="bg-transparent border-transparent focus:border-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none px-3 py-2 text-sm font-medium placeholder:text-gray-400 hover:bg-gray-50 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Add Exam Button */}
+              {manualClassTitle.trim() && (
+                <div className="flex justify-between items-center pt-4 border-t border-gray-100">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{manualClassTitle}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {pendingManualExams.length} exam{pendingManualExams.length !== 1 ? 's' : ''} added
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={toggleExamForm}
+                    variant="ghost"
+                    size="sm"
+                    disabled={isSaving}
+                    className="bg-transparent border-transparent hover:bg-gray-50 text-gray-700 hover:text-gray-900"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {showExamEntryForm ? 'Cancel' : 'Add Exam'}
+                  </Button>
+                </div>
+              )}
+
+              {/* Exam Entry Form */}
+              {showExamEntryForm && manualClassTitle.trim() && (
+                <div className="p-6 bg-gray-50 border border-gray-200 rounded-lg space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Exam Name
+                      </label>
+                      <Input
+                        value={currentExamNameInput}
+                        onChange={(e) => setCurrentExamNameInput(e.target.value)}
+                        placeholder="e.g., Midterm Exam"
+                        disabled={isSaving}
+                        className="bg-transparent border-transparent focus:border-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none px-3 py-2 text-sm font-medium placeholder:text-gray-400 hover:bg-gray-50 transition-colors"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Exam Date
+                      </label>
+                      <div className="relative">
+                        <Input
+                          ref={dateInputRef}
+                          value={currentExamDateInput}
+                          onChange={(e) => setCurrentExamDateInput(e.target.value)}
+                          placeholder="YYYY-MM-DD"
+                          disabled={isSaving}
+                          className="bg-transparent border-transparent focus:border-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none px-3 py-2 pr-10 text-sm font-medium placeholder:text-gray-400 hover:bg-gray-50 focus:bg-gray-50 transition-colors [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-6 [&::-webkit-calendar-picker-indicator]:h-6 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                          style={{
+                            WebkitAppearance: 'none',
+                            MozAppearance: 'textfield'
+                          }}
+                          onFocus={(e) => {
+                            e.target.type = 'date';
+                          }}
+                          onBlur={(e) => {
+                            if (!e.target.value) {
+                              e.target.type = 'text';
+                            }
+                          }}
+                        />
+                        <Calendar 
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 cursor-pointer hover:text-gray-600 transition-colors"
+                          onClick={handleCalendarClick}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      onClick={handleAddExamDetailToList}
+                      size="sm"
+                      disabled={!currentExamNameInput.trim() || !currentExamDateInput.trim() || isSaving}
+                      className="bg-transparent border-transparent hover:bg-gray-100 text-gray-700 hover:text-gray-900"
                     >
-                      Add Exam
+                      Add to List
                     </Button>
                   </div>
                 </div>
               )}
 
-              {/* List of Pending Manual Exams */}
+              {/* Exam List */}
               {pendingManualExams.length > 0 && (
-                <div className="mt-6">
-                  <h4 className="text-md font-semibold mb-2">{manualClassTitle || 'Inputted Class Name'}</h4>
-                  <ul className="space-y-2">
-                    {pendingManualExams.map(exam => (
-                      <ContextMenu key={exam.id}>
-                        <ContextMenuTrigger asChild>
-                          <li 
-                            className="flex justify-between items-center p-3 border rounded-md bg-card shadow-sm hover:bg-muted cursor-pointer"
+                <div className="space-y-3">
+                  {pendingManualExams.map(exam => (
+                    <ContextMenu key={exam.id}>
+                      <ContextMenuTrigger asChild>
+                        <div className="group flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                          <div className="flex items-center gap-3">
+                            <Calendar className="h-4 w-4 text-gray-400" />
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{exam.examName}</p>
+                              <p className="text-xs text-gray-500">{formatDateForDisplay(exam.examDate)}</p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemovePendingExam(exam.id);
+                            }}
+                            disabled={isSaving}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 text-gray-400 hover:text-red-600"
                           >
-                            <span className="font-medium truncate mr-4">{exam.examName}</span>
-                            <span className="text-sm text-muted-foreground whitespace-nowrap">{formatDateForDisplay(exam.examDate)}</span>
-                          </li>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="min-w-max"> {/* Adjusted width to content */}
-                          <ContextMenuItem 
-                            onClick={() => handleRemovePendingExam(exam.id)} 
-                            className="text-destructive focus:text-destructive-foreground focus:bg-destructive/90 cursor-pointer px-3 py-1.5" /* Ensure padding for size */
-                          >
-                            Delete
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    ))}
-                  </ul>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem
+                          onClick={() => handleRemovePendingExam(exam.id)}
+                          className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+                        >
+                          Delete Exam
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  ))}
                 </div>
               )}
+            </div>
 
-              <Button 
-                onClick={handleSaveExams} 
-                className="mt-6 w-full" 
-                size="lg" 
-                disabled={isSaving} // Only disable while actually saving
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-6 border-t border-gray-100">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate('/exams')}
+                disabled={isSaving}
+                className="bg-transparent border-transparent hover:bg-gray-50 text-gray-700 hover:text-gray-900"
               >
-                {isSaving ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving Exams...</>) : "Save Exams & View Calendar"}
+                Cancel
               </Button>
-            </>
-          )}
+              <Button
+                onClick={handleSaveExams}
+                disabled={isSaving || !manualClassTitle.trim() || pendingManualExams.length === 0}
+                className="bg-transparent border-transparent hover:bg-gray-50 text-gray-700 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {isSaving ? 'Saving Exams...' : 'Save Exams & View Calendar'}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
-} 
+}

@@ -79,11 +79,6 @@ export function BookDropdown() {
                 <div className="font-medium truncate w-full">
                   {book.title}
                 </div>
-                {book.author && (
-                  <div className="text-xs text-muted-foreground truncate w-full">
-                    by {book.author}
-                  </div>
-                )}
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />

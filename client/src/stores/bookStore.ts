@@ -71,20 +71,17 @@ class ServerStorageAdapter implements StorageAdapter {
 
   async getBook(id: string): Promise<BookMeta | null> {
     try {
-      // userId query param removed, server handles user context
       const response = await fetch(`${this.baseUrl}/books/${id}`);
       if (!response.ok) {
         if (response.status === 404) return null;
         const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
         throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
       }
-      return await response.json();
+      const book = await response.json();
+      return this.convertServerBookToBookMeta(book);
     } catch (error) {
-      console.error('Error fetching book:', error);
-      // Fallback to null or rethrow to let BookStore handle memory adapter switch
-      // As per current BookStore logic, throwing an error will trigger memory fallback.
-      if (error instanceof Error && error.message.includes('Server error')) throw error;
-      return null;
+      console.error('Error fetching book from server:', error);
+      throw error;
     }
   }
 
@@ -99,7 +96,7 @@ class ServerStorageAdapter implements StorageAdapter {
       }
       const books = await response.json();
       console.log(`Successfully fetched ${books.length} books from server`);
-      return books;
+      return books.map((book: any) => this.convertServerBookToBookMeta(book));
     } catch (error) {
       console.error('Error fetching books from server:', error);
       // Rethrow to trigger fallback logic in BookStore
@@ -112,16 +109,17 @@ class ServerStorageAdapter implements StorageAdapter {
     const validUpdates: Partial<{ title: string; author: string; metadataJson: Record<string, any> }> = {};
     if (updates.title !== undefined) validUpdates.title = updates.title;
     if (updates.author !== undefined) validUpdates.author = updates.author;
-    // Assuming BookMeta might have a metadata field matching metadataJson structure
+    
+    // Handle externalLink by storing it in metadataJson
+    if (updates.externalLink !== undefined) {
+      validUpdates.metadataJson = { externalLink: updates.externalLink };
+    }
+    
+    // Handle direct metadataJson updates
     if ((updates as any).metadataJson !== undefined) validUpdates.metadataJson = (updates as any).metadataJson;
     else if ((updates as any).metadata !== undefined) validUpdates.metadataJson = (updates as any).metadata;
 
-
     if (Object.keys(validUpdates).length === 0) {
-        // Or return current book data if no valid fields to update?
-        // For now, let the server handle it or throw client error.
-        // const currentBook = await this.getBook(id); // Avoid if not necessary
-        // if (currentBook) return currentBook;
         throw new Error("No valid fields provided for update.");
     }
 
@@ -135,7 +133,8 @@ class ServerStorageAdapter implements StorageAdapter {
       const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
       throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
     }
-    return await response.json();
+    const updatedBook = await response.json();
+    return this.convertServerBookToBookMeta(updatedBook);
   }
 
   async deleteBook(id: string): Promise<void> {
@@ -165,6 +164,19 @@ class ServerStorageAdapter implements StorageAdapter {
     }
     const byteArray = new Uint8Array(byteNumbers);
     return new Blob([byteArray], { type: contentType });
+  }
+
+  private convertServerBookToBookMeta(serverBook: any): BookMeta {
+    const bookMeta: BookMeta = {
+      ...serverBook,
+    };
+    
+    // Extract externalLink from metadataJson if it exists
+    if (serverBook.metadataJson && serverBook.metadataJson.externalLink) {
+      bookMeta.externalLink = serverBook.metadataJson.externalLink;
+    }
+    
+    return bookMeta;
   }
 }
 
@@ -323,8 +335,19 @@ class MemoryStorageAdapter implements StorageAdapter {
   }
 
   async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
-    const book = this.books.get(id);
-    if (!book) throw new Error('Book not found for update in memory');
+    let book = this.books.get(id);
+    
+    // If book doesn't exist in memory, create a minimal book entry with the updates
+    if (!book) {
+      console.warn(`Book ${id} not found in memory, creating new entry for update`);
+      book = {
+        id,
+        title: updates.title || 'Unknown Title',
+        author: updates.author,
+        uploadDate: new Date(),
+        // Add other essential fields as needed
+      };
+    }
     
     const updatedBook = { ...book, ...updates, id };
     
@@ -396,11 +419,41 @@ class BookStore {
   private cachedBooks: Map<string, BookMeta> = new Map();
   private lastFetch: number = 0;
   private fetchInterval: number = 5000; // 5 seconds minimum between fetches
+  private metadataStorageKey = "bookMetadataOverrides"; // Simple localStorage for metadata
 
   constructor() {
     this.memoryAdapter = new MemoryStorageAdapter();
     this.serverAdapter = new ServerStorageAdapter();
     this.adapter = this.serverAdapter; // Start with server adapter
+  }
+
+  // Simple localStorage methods for metadata persistence
+  private saveMetadataToLocalStorage(bookId: string, metadata: { title?: string; author?: string; externalLink?: string }) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(this.metadataStorageKey) || '{}');
+      stored[bookId] = { ...stored[bookId], ...metadata };
+      localStorage.setItem(this.metadataStorageKey, JSON.stringify(stored));
+    } catch (error) {
+      console.error('Error saving metadata to localStorage:', error);
+    }
+  }
+
+  private getMetadataFromLocalStorage(bookId: string): { title?: string; author?: string; externalLink?: string } {
+    try {
+      const stored = JSON.parse(localStorage.getItem(this.metadataStorageKey) || '{}');
+      return stored[bookId] || {};
+    } catch (error) {
+      console.error('Error loading metadata from localStorage:', error);
+      return {};
+    }
+  }
+
+  private applyMetadataOverrides(book: BookMeta): BookMeta {
+    const overrides = this.getMetadataFromLocalStorage(book.id);
+    return {
+      ...book,
+      ...overrides // Apply localStorage overrides for title, author, externalLink
+    };
   }
 
   private async refreshBooks(): Promise<void> {
@@ -446,13 +499,15 @@ class BookStore {
     // Check cache first
     const cachedBook = this.cachedBooks.get(id);
     if (cachedBook && cachedBook.isActive !== false) {
-      return cachedBook;
+      return this.applyMetadataOverrides(cachedBook);
     }
 
     try {
       const book = await this.adapter.getBook(id);
       if (book) {
-        this.cachedBooks.set(id, book);
+        const bookWithOverrides = this.applyMetadataOverrides(book);
+        this.cachedBooks.set(id, bookWithOverrides);
+        return bookWithOverrides;
       } else {
         this.cachedBooks.delete(id);
       }
@@ -469,36 +524,15 @@ class BookStore {
     // Return cached books if recently fetched
     const now = Date.now();
     if (this.cachedBooks.size > 0 && now - this.lastFetch < this.fetchInterval) {
-      return Array.from(this.cachedBooks.values()).filter(book => book.isActive !== false);
+      return Array.from(this.cachedBooks.values())
+        .filter(book => book.isActive !== false)
+        .map(book => this.applyMetadataOverrides(book));
     }
 
     await this.refreshBooks();
-    return Array.from(this.cachedBooks.values()).filter(book => book.isActive !== false);
-  }
-
-  async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
-    await this.ensureInitialized();
-    
-    // For updates, try to reconnect to server if not available
-    if (!this.serverAvailable) {
-      await this.retryServerConnection();
-    }
-
-    try {
-      const updated = await this.adapter.updateBook(id, updates);
-      this.notifyListeners();
-      return updated;
-    } catch (error) {
-      console.warn('Primary adapter updateBook failed, attempting memory adapter. Error:', error.message);
-      if (this.adapter !== this.memoryAdapter) {
-        this.serverAvailable = false;
-        this.adapter = this.memoryAdapter;
-        const updated = await this.memoryAdapter.updateBook(id, updates);
-        this.notifyListeners();
-        return updated;
-      }
-      throw error;
-    }
+    return Array.from(this.cachedBooks.values())
+      .filter(book => book.isActive !== false)
+      .map(book => this.applyMetadataOverrides(book));
   }
 
   async deleteBook(id: string): Promise<void> {
@@ -594,6 +628,52 @@ class BookStore {
     } catch (error) {
       console.warn('Server reconnection failed:', error.message);
       return false;
+    }
+  }
+
+  async updateBook(id: string, updates: Partial<BookMeta>): Promise<BookMeta> {
+    await this.ensureInitialized();
+    
+    // Save metadata changes to localStorage immediately for persistence
+    const metadataUpdates: { title?: string; author?: string; externalLink?: string } = {};
+    if (updates.title !== undefined) metadataUpdates.title = updates.title;
+    if (updates.author !== undefined) metadataUpdates.author = updates.author;
+    if (updates.externalLink !== undefined) metadataUpdates.externalLink = updates.externalLink;
+    
+    if (Object.keys(metadataUpdates).length > 0) {
+      this.saveMetadataToLocalStorage(id, metadataUpdates);
+    }
+    
+    // For updates, try to reconnect to server if not available
+    if (!this.serverAvailable) {
+      await this.retryServerConnection();
+    }
+
+    try {
+      const updated = await this.adapter.updateBook(id, updates);
+      // Apply localStorage overrides to the updated book
+      const updatedWithOverrides = this.applyMetadataOverrides(updated);
+      // Update cache with the latest data
+      this.cachedBooks.set(id, updatedWithOverrides);
+      this.notifyListeners();
+      return updatedWithOverrides;
+    } catch (error) {
+      console.warn('Primary adapter updateBook failed, attempting memory adapter. Error:', error.message);
+      if (this.adapter !== this.memoryAdapter) {
+        this.serverAvailable = false;
+        this.adapter = this.memoryAdapter;
+        
+        // The memory adapter will now handle missing books by creating them
+        // Just try the update directly - memory adapter will handle it
+        const updated = await this.memoryAdapter.updateBook(id, updates);
+        // Apply localStorage overrides to the updated book
+        const updatedWithOverrides = this.applyMetadataOverrides(updated);
+        // Update cache with the latest data from memory adapter
+        this.cachedBooks.set(id, updatedWithOverrides);
+        this.notifyListeners();
+        return updatedWithOverrides;
+      }
+      throw error;
     }
   }
 }

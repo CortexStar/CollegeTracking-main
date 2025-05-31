@@ -82,9 +82,11 @@ export default function LibraryPage() {
     (book.author && book.author.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleOpenPdf = (pdfUrl: string | undefined) => {
-    if (pdfUrl) {
-      window.open(pdfUrl, '_blank');
+  const handleOpenPdf = (book: BookMeta) => {
+    if (book.externalLink) {
+      window.open(book.externalLink, '_blank');
+    } else if (book.url) {
+      window.open(book.url, '_blank');
     } else {
       toast({
         title: 'Error opening PDF',
@@ -130,12 +132,6 @@ export default function LibraryPage() {
       month: 'short',
       day: 'numeric'
     }).format(new Date(date));
-  };
-
-  const formatFileSize = (bytes: number | undefined) => {
-    if (!bytes) return 'Unknown size';
-    const mb = bytes / 1024 / 1024;
-    return `${mb.toFixed(2)} MB`;
   };
 
   if (loading) {
@@ -207,19 +203,25 @@ export default function LibraryPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredBooks.map((book) => (
-            <Card key={book.id} className="group hover:shadow-lg transition-shadow">
+            <Card 
+              key={book.id} 
+              className="group hover:shadow-lg transition-shadow cursor-pointer"
+              onClick={() => navigate(`/books/${book.id}`)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start gap-2">
-                  <CardTitle className="text-lg line-clamp-2 group-hover:text-primary cursor-pointer"
-                    onClick={() => navigate(`/books/${book.id}`)}>
+                  <CardTitle className="text-lg line-clamp-2">
                     {book.title}
                   </CardTitle>
                   <div className="flex gap-1 shrink-0">
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => handleOpenPdf(book.url)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenPdf(book);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity bg-transparent border-transparent hover:bg-muted/50"
                       title="Open PDF"
                     >
                       <BookOpen className="h-3 w-3" />
@@ -228,7 +230,10 @@ export default function LibraryPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleDeleteBook(book.id, book.title)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBook(book.id, book.title);
+                        }}
                         disabled={deletingId === book.id}
                         className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
                       >
@@ -243,32 +248,11 @@ export default function LibraryPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                {book.author && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    <span>{book.author}</span>
-                  </div>
-                )}
-                
-                {book.fileSize && (
-                  <div className="text-sm text-muted-foreground">
-                    {formatFileSize(book.fileSize)}
-                  </div>
-                )}
-
                 {book.isBuiltIn && (
                   <div className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
                     Built-in
                   </div>
                 )}
-
-                <Button
-                  className="w-full mt-4"
-                  onClick={() => navigate(`/books/${book.id}`)}
-                >
-                  <BookOpen className="h-4 w-4 mr-2" />
-                  Open Book
-                </Button>
               </CardContent>
             </Card>
           ))}

@@ -19,25 +19,15 @@ await fs.mkdir(UPLOAD_DIR, { recursive: true });
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, UPLOAD_DIR),
   filename: (_, file, cb) => {
-    // Create a date-based subdirectory structure
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
     const uuid = crypto.randomUUID();
     const ext = path.extname(file.originalname);
+    const filename = `${uuid}${ext}`;
     
-    // Create the year/month subdirectories
-    const yearDir = path.join(UPLOAD_DIR, String(year));
-    const monthDir = path.join(yearDir, month);
-    fs.mkdir(monthDir, { recursive: true })
-      .then(() => {
-        const filename = `${uuid}${ext}`;
-        const relativePath = path.join(String(year), month, filename);
-        // Store the relative path on the request for later use
-        (file as any).storedPath = relativePath;
-        cb(null, filename);
-      })
-      .catch(err => cb(err));
+    // For URL construction, we just need the filename since files are stored directly in UPLOAD_DIR
+    // which corresponds to /uploads/books in the URL path
+    (file as any).storedPath = `books/${filename}`;
+    
+    cb(null, filename);
   },
 });
 
@@ -56,4 +46,4 @@ export const uploadPdf = multer({
   storage,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter,
-}).single("file");          // expecting <input name="file" /> 
+}).single("pdfFile");          // Changed from "file" to "pdfFile" 

@@ -28,29 +28,30 @@ import { env } from "../shared/env";
 export async function registerRoutes(app: Express): Promise<Server> {
   const userId = "anonymous-user";
 
-  app.get('/api/books', async (req, res) => {
-    try {
-      const booksMeta = await storage.getUserBooksAsMeta(userId);
-      return res.status(200).json(booksMeta);
-    } catch (error) {
-      console.error('Error in GET /api/books:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
-      return res.status(500).json({ error: 'Failed to fetch books', details: error.message });
-    }
-  });
+  // Commented out old GET routes to prevent conflicts with new books router  
+  // app.get('/api/books', async (req, res) => {
+  //   try {
+  //     const booksMeta = await storage.getUserBooksAsMeta(userId);
+  //     return res.status(200).json(booksMeta);
+  //   } catch (error) {
+  //     console.error('Error in GET /api/books:', error.message, error.stack ? `\nStack: ${error.stack}` : '');
+  //     return res.status(500).json({ error: 'Failed to fetch books', details: error.message });
+  //   }
+  // });
 
-  app.get('/api/books/:id', async (req, res) => {
-    try {
-      const bookId = req.params.id;
-      const bookMeta = await storage.getBookByIdAsMeta(bookId, userId);
-      if (!bookMeta) {
-        return res.status(404).json({ error: 'Book not found or not active' });
-      }
-      return res.status(200).json(bookMeta);
-    } catch (error) {
-      console.error(`Error in GET /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
-      return res.status(500).json({ error: 'Failed to fetch book', details: error.message });
-    }
-  });
+  // app.get('/api/books/:id', async (req, res) => {
+  //   try {
+  //     const bookId = req.params.id;
+  //     const bookMeta = await storage.getBookByIdAsMeta(bookId, userId);
+  //     if (!bookMeta) {
+  //       return res.status(404).json({ error: 'Book not found or not active' });
+  //     }
+  //     return res.status(200).json(bookMeta);
+  //   } catch (error) {
+  //     console.error(`Error in GET /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+  //     return res.status(500).json({ error: 'Failed to fetch book', details: error.message });
+  //   }
+  // });
 
   // // REMOVED PDF upload route
   // app.post('/api/books/upload', upload.single('pdfFile'), async (req, res) => {
@@ -112,25 +113,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.delete('/api/books/:id', async (req, res) => {
-    try {
-      const bookId = req.params.id;
-      console.log(`Attempting to delete book ${bookId} for user ${userId}`);
-      
-      const success = await storage.softDeleteBook(bookId, userId);
-      if (!success) {
-        console.log(`Delete failed: book not found or unauthorized`);
-        return res.status(404).json({ error: 'Book not found or not authorized for deletion' });
-      }
-      
-      console.log(`Successfully deleted book ${bookId}`);
-      return res.status(204).send();
-    } catch (error) {
-      console.error(`Error in DELETE /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete book';
-      return res.status(500).json({ error: errorMessage, details: errorMessage });
-    }
-  });
+  // Commented out old DELETE route to prevent conflicts with new books router
+  // app.delete('/api/books/:id', async (req, res) => {
+  //   try {
+  //     const bookId = req.params.id;
+  //     console.log(`Attempting to delete book ${bookId} for user ${userId}`);
+  //     
+  //     const success = await storage.softDeleteBook(bookId, userId);
+  //     if (!success) {
+  //       console.log(`Delete failed: book not found or unauthorized`);
+  //       return res.status(404).json({ error: 'Book not found or not authorized for deletion' });
+  //     }
+  //     
+  //     console.log(`Successfully deleted book ${bookId}`);
+  //     return res.status(204).send();
+  //   } catch (error) {
+  //     console.error(`Error in DELETE /api/books/${req.params.id}:`, error.message, error.stack ? `\nStack: ${error.stack}` : '');
+  //     const errorMessage = error instanceof Error ? error.message : 'Failed to delete book';
+  //     return res.status(500).json({ error: errorMessage, details: errorMessage });
+  //   }
+  // });
 
   app.get('/api/files/:filePath(*)', async (req, res) => {
     const requestedRelativePath = req.params.filePath;

@@ -29,7 +29,7 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
     if (!pdfUrl) {
       setTocItems([]);
       setLoading(false);
-      setError('PDF URL not available.');
+      setError('Could not load Table of Contents.');
       return;
     }
 
@@ -56,7 +56,7 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
           setTocItems(transformOutline(outline));
         } else {
           setTocItems([]);
-          // setError('No table of contents found in this PDF.'); // User prefers subtle message
+          setError('Could not load Table of Contents.');
         }
       } catch (e) {
         console.error('Error loading or parsing PDF for TOC:', e);
@@ -95,7 +95,7 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
     return (
       <div key={itemKey} className="space-y-1">
         <div
-          className={`flex items-center gap-1 p-1.5 rounded hover:bg-muted cursor-pointer group ${
+          className={`flex items-center gap-1 p-1.5 rounded hover:bg-muted/50 cursor-pointer group ${
             item.level > 1 ? `ml-${(item.level - 1) * 3}` : '' // Indentation based on level
           }`}
           onClick={() => handleItemClick(item)}
@@ -149,14 +149,14 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-2 pt-3">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+    <div className="space-y-4">
+      <div className="pb-2 pt-3">
+        <h3 className="flex items-center gap-2 text-base font-semibold">
           <List className="h-4 w-4" />
           Table of Contents
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm max-h-96 overflow-y-auto pr-1">
+        </h3>
+      </div>
+      <div className="text-sm max-h-96 overflow-y-auto pr-1">
         {loading && (
           <div className="flex items-center justify-center py-4">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -166,15 +166,10 @@ export function TextbookToc({ pdfUrl }: TextbookTocProps) {
         {!loading && error && (
           <p className="text-muted-foreground text-center py-4">{error}</p>
         )}
-        {!loading && !error && tocItems.length === 0 && (
-          <p className="text-muted-foreground text-center py-4 italic">
-            Table of contents not available in this PDF.
-          </p>
-        )}
         {!loading && !error && tocItems.length > 0 && (
           tocItems.map((item, index) => renderTocItem(item, index))
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 } 

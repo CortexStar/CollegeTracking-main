@@ -70,7 +70,7 @@ export const storage = {
   async getUserBooks(userId: string): Promise<DbBook[]> {
     return await db.query.books.findMany({
       where: eq(books.userId, userId),
-      orderBy: (booksTable, { desc }) => [desc(booksTable.uploadedAt)],
+      orderBy: (booksTable, { desc }) => [desc(booksTable.createdAt)],
     });
   },
 

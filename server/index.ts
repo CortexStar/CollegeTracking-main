@@ -17,9 +17,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(requestLogger); // Use morgan for request logging
 
-// Serve uploaded files
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve("uploads", "books");
-app.use('/uploads', express.static(UPLOAD_DIR));
+// Serve uploaded files - fix the path mapping
+const UPLOAD_BASE_DIR = process.env.UPLOAD_DIR || path.resolve("uploads");
+app.use('/uploads', express.static(UPLOAD_BASE_DIR));
+
+// Serve static files from public directory (for PDF.js worker)
+app.use(express.static(path.join(import.meta.dirname, 'public')));
 
 // Mount the books router
 app.use("/api/books", booksRouter);
@@ -42,11 +45,11 @@ app.use("/api/books", booksRouter);
   // Use the validated PORT from environment
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(env.PORT || "3001", 10);
+  const port = env.PORT;
   server.listen({
     port,
     host: "127.0.0.1",
   }, () => {
-    log("📚 PDF service listening at http://localhost:" + String(port));
+    log("📚 PDF service listening at http://localhost:" + port.toString());
   });
 })();
